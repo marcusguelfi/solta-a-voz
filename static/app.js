@@ -424,8 +424,33 @@ function showResults() {
 // Sempre visível no modo IA; o rastro aparece quando o mic está ligado.
 let laneRange = null;
 
+// janelas das frases da letra em tempo do ÁUDIO — a melodia só aparece dentro
+// delas (o que o pyin detecta fora é sobra da separação: violão, reverb…)
+function getLaneWindows() {
+  if (!lyrLines.length) return null;
+  const shift = autoOffset - manualOffset;
+  return lyrLines.map((l, i) => [
+    l.t + shift - 0.3,
+    (l.end ?? lyrLines[i + 1]?.t ?? l.t + 6) + shift + 0.3,
+  ]);
+}
+
 function computeLaneRange() {
-  const notes = score.ref.midi.filter((m) => m !== null).sort((a, b) => a - b);
+  const wins = getLaneWindows();
+  const { hop, midi } = score.ref;
+  const notes = [];
+  let wi = 0;
+  for (let k = 0; k < midi.length; k++) {
+    const m = midi[k];
+    if (m === null) continue;
+    if (wins) {
+      const tA = k * hop;
+      while (wi < wins.length && wins[wi][1] < tA) wi++;
+      if (!(wi < wins.length && tA >= wins[wi][0])) continue;
+    }
+    notes.push(m);
+  }
+  notes.sort((a, b) => a - b);
   if (notes.length < 20) return null;
   const lo = notes[Math.floor(notes.length * 0.03)] - 2;
   const hi = notes[Math.floor(notes.length * 0.97)] + 2;
@@ -459,15 +484,21 @@ function drawLane() {
   const Y = (m) => h - ((m - laneRange[0]) / (laneRange[1] - laneRange[0])) * (h - 10) - 5;
   const { hop, midi } = score.ref;
 
-  // notas da melodia original (frames consecutivos viram barras)
+  // notas da melodia original — SÓ dentro das frases da letra (fora é sobra da
+  // separação, não canto); as notas da frase ATUAL ficam em âmbar
+  const wins = getLaneWindows();
+  const nowWin = wins ? wins.find((w) => now >= w[0] && now <= w[1]) : null;
   const k0 = Math.max(0, Math.floor(t0 / hop));
   const k1 = Math.min(midi.length - 1, Math.ceil(t1 / hop));
-  let segStart = null, segSum = 0, segN = 0, prev = null;
+  let segStart = null, segSum = 0, segN = 0, prev = null, wi = 0;
   const flush = (endK) => {
     if (segStart !== null && segN >= 2) {
       const m = segSum / segN;
+      const midT = ((segStart + endK) / 2) * hop;
       const x1 = X(segStart * hop), x2 = X(endK * hop);
-      ctx.fillStyle = endK * hop < now ? "rgba(93,79,116,.5)" : "rgba(157,143,176,.85)";
+      const inNow = nowWin && midT >= nowWin[0] && midT <= nowWin[1];
+      ctx.fillStyle = inNow ? "rgba(255,179,71,.95)"
+        : endK * hop < now ? "rgba(93,79,116,.5)" : "rgba(157,143,176,.85)";
       ctx.beginPath();
       ctx.roundRect(x1, Y(m) - 3.5, Math.max(x2 - x1, 3), 7, 3.5);
       ctx.fill();
@@ -475,8 +506,13 @@ function drawLane() {
     segStart = null; segSum = 0; segN = 0;
   };
   for (let k = k0; k <= k1; k++) {
-    const m = midi[k];
-    if (m === null || (prev !== null && m !== null && Math.abs(m - prev) > 0.7)) flush(k);
+    let m = midi[k];
+    if (m !== null && wins) {
+      const tA = k * hop;
+      while (wi < wins.length && wins[wi][1] < tA) wi++;
+      if (!(wi < wins.length && tA >= wins[wi][0])) m = null; // fora de frase: oculta
+    }
+    if (m === null || (prev !== null && Math.abs(m - prev) > 0.7)) flush(k);
     if (m !== null) {
       if (segStart === null) segStart = k;
       segSum += m; segN++;
