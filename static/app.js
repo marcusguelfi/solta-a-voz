@@ -123,10 +123,9 @@ function buildCenterCut() {
 }
 
 function stopSources() {
-  engine.stopping = true;
-  engine.sources.forEach((s) => { try { s.stop(); } catch {} });
-  engine.sources = [];
-  engine.stopping = false;
+  const old = engine.sources;
+  engine.sources = []; // primeiro esvazia: onended atrasado das antigas vira no-op
+  old.forEach((s) => { try { s.stop(); } catch {} });
 }
 
 function stemsPlayFrom(offset) {
@@ -140,8 +139,11 @@ function stemsPlayFrom(offset) {
     s.start(now, Math.min(offset, s.buffer.duration));
     engine.sources.push(s);
   }
-  engine.sources[0].onended = () => {
-    if (!engine.stopping && engine.playing) {
+  const src0 = engine.sources[0];
+  src0.onended = () => {
+    // fontes antigas (descartadas por seek/pausa/troca) disparam onended atrasado
+    if (!engine.sources.includes(src0)) return;
+    if (engine.playing) {
       engine.playing = false;
       engine.startOffset = getDuration();
       $("play-btn").textContent = "▶";
@@ -403,29 +405,92 @@ function showResults() {
   $("results").hidden = false;
 }
 
-function updatePitchMeter() {
-  const meter = $("pitch-meter");
-  if (!score.enabled || engine.mode !== "stems" || !score.ref || !engine.playing) {
-    meter.hidden = true;
+// ---- pitch lane: gráfico horizontal com as notas do cantor original rolando
+// (janela: 2s de passado, 6s de futuro) + rastro colorido da SUA voz por cima.
+// Sempre visível no modo IA; o rastro aparece quando o mic está ligado.
+let laneRange = null;
+
+function computeLaneRange() {
+  const notes = score.ref.midi.filter((m) => m !== null).sort((a, b) => a - b);
+  if (notes.length < 20) return null;
+  const lo = notes[Math.floor(notes.length * 0.03)] - 2;
+  const hi = notes[Math.floor(notes.length * 0.97)] + 2;
+  return [lo, Math.max(hi, lo + 10)];
+}
+
+function drawLane() {
+  const lane = $("pitch-lane");
+  if (engine.mode !== "stems" || !score.ref) {
+    lane.hidden = true;
     return;
   }
+  if (!laneRange) laneRange = computeLaneRange();
+  if (!laneRange) { lane.hidden = true; return; }
+  lane.hidden = false;
+
+  const dpr = window.devicePixelRatio || 1;
+  const w = lane.clientWidth, h = lane.clientHeight;
+  if (!w || !h) return;
+  if (lane.width !== Math.round(w * dpr)) {
+    lane.width = Math.round(w * dpr);
+    lane.height = Math.round(h * dpr);
+  }
+  const ctx = lane.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
   const now = getTime();
-  const s = score.lastSample;
-  const k = Math.floor(now / score.ref.hop);
-  const r = score.ref.midi[k] ?? score.ref.midi[k - 1] ?? score.ref.midi[k + 1];
-  if (!s || now - s.t > 0.4 || r == null) {
-    meter.hidden = true;
-    return;
+  const t0 = now - 2, t1 = now + 6;
+  const X = (t) => ((t - t0) / (t1 - t0)) * w;
+  const Y = (m) => h - ((m - laneRange[0]) / (laneRange[1] - laneRange[0])) * (h - 10) - 5;
+  const { hop, midi } = score.ref;
+
+  // notas da melodia original (frames consecutivos viram barras)
+  const k0 = Math.max(0, Math.floor(t0 / hop));
+  const k1 = Math.min(midi.length - 1, Math.ceil(t1 / hop));
+  let segStart = null, segSum = 0, segN = 0, prev = null;
+  const flush = (endK) => {
+    if (segStart !== null && segN >= 2) {
+      const m = segSum / segN;
+      const x1 = X(segStart * hop), x2 = X(endK * hop);
+      ctx.fillStyle = endK * hop < now ? "rgba(93,79,116,.5)" : "rgba(157,143,176,.85)";
+      ctx.beginPath();
+      ctx.roundRect(x1, Y(m) - 3.5, Math.max(x2 - x1, 3), 7, 3.5);
+      ctx.fill();
+    }
+    segStart = null; segSum = 0; segN = 0;
+  };
+  for (let k = k0; k <= k1; k++) {
+    const m = midi[k];
+    if (m === null || (prev !== null && m !== null && Math.abs(m - prev) > 0.7)) flush(k);
+    if (m !== null) {
+      if (segStart === null) segStart = k;
+      segSum += m; segN++;
+    }
+    prev = m;
   }
-  let d = (s.midi - r) % 12;
-  if (d > 6) d -= 12;
-  if (d < -6) d += 12;
-  meter.hidden = false;
-  const marker = $("pm-marker");
-  const pos = Math.max(-1, Math.min(1, d / 3));
-  marker.style.left = `${50 + pos * 46}%`;
-  marker.className = "pm-marker " +
-    (Math.abs(d) <= 0.75 ? "good" : Math.abs(d) <= 1.75 ? "ok" : "bad");
+  flush(k1);
+
+  // linha do "agora"
+  ctx.strokeStyle = "rgba(255,179,71,.75)";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(X(now), 4); ctx.lineTo(X(now), h - 4); ctx.stroke();
+
+  // rastro da sua voz (dobrado pra oitava da melodia; cor = afinação)
+  for (const s of score.samples) {
+    if (s.t < t0 || s.t > now) continue;
+    const k = Math.round(s.t / hop);
+    const r = midi[k] ?? midi[k - 1] ?? midi[k + 1];
+    const anchor = r ?? (laneRange[0] + laneRange[1]) / 2;
+    const m = s.midi - Math.round((s.midi - anchor) / 12) * 12;
+    let color = "rgba(244,238,248,.45)";
+    if (r != null) {
+      const err = Math.abs((((s.midi - r) % 12) + 18) % 12 - 6);
+      color = err <= 0.75 ? "#3ddc84" : err <= 1.75 ? "#ffb347" : "#ff2d78";
+    }
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(X(s.t), Y(m), 3, 0, 7); ctx.fill();
+  }
 }
 
 $("mic-btn").onclick = async () => {
@@ -467,9 +532,18 @@ function loadMixerFor(mode) {
 }
 
 // ---------------------------------------------------------------- biblioteca
+const cardEls = new Map(); // id -> {card, meta, prog, progFill}
+
 async function loadSongs() {
-  songs = await api("/api/songs");
-  renderGrid();
+  const fresh = await api("/api/songs");
+  const sameList = fresh.length === songs.length &&
+    fresh.every((s, i) => s.id === songs[i]?.id);
+  songs = fresh;
+  if (sameList && cardEls.size) {
+    songs.forEach(updateCardStatus); // atualização in-place: nada de piscar o grid
+  } else {
+    renderGrid();
+  }
   clearTimeout(pollTimer);
   if (songs.some((s) => PROCESSING.has(s.status))) {
     pollTimer = setTimeout(() => loadSongs().catch(() => {}), 4000);
@@ -480,47 +554,76 @@ function diffOf(song) {
   return song?.lyrics?.difficulty?.label || null;
 }
 
+function metaHTML(song) {
+  const diff = diffOf(song);
+  const hasSync = !!(song?.lyrics?.synced || song?.lyrics?.lines);
+  let statusPill;
+  if (PROCESSING.has(song.status)) {
+    statusPill = `<span class="pill working">${STATUS_LABEL[song.status] || "preparando…"}</span>`;
+  } else if (song.status === "ready" && song.stems) {
+    statusPill = `<span class="pill ready">✓ karaokê pronto</span>`;
+  } else if (song.status === "error") {
+    statusPill = `<span class="pill error" title="${(song.errorMsg || "").replace(/"/g, "&quot;")}">falhou — tentar de novo</span>`;
+  } else {
+    statusPill = `<span class="pill prepare">preparar karaokê</span>`;
+  }
+  return `
+    <span class="pill">${fmtTime(song.duration)}</span>
+    ${diff ? `<span class="pill diff ${diff.toLowerCase()}">${diff}</span>` : ""}
+    ${hasSync ? `<span class="pill">letra sync</span>` : ""}
+    ${statusPill}`;
+}
+
+function bindMetaActions(song, refs) {
+  const retry = refs.meta.querySelector(".pill.error, .pill.prepare");
+  if (retry) retry.onclick = async (e) => {
+    e.stopPropagation();
+    try {
+      await api(`/api/process/${song.id}`, { method: "POST" });
+      loadSongs();
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+function updateCardStatus(song) {
+  const refs = cardEls.get(song.id);
+  if (!refs) return;
+  const html = metaHTML(song);
+  if (refs.meta.dataset.snapshot !== html) {
+    refs.meta.dataset.snapshot = html;
+    refs.meta.innerHTML = html;
+    bindMetaActions(song, refs);
+  }
+  const busy = PROCESSING.has(song.status);
+  refs.prog.hidden = !busy;
+  if (busy) refs.progFill.style.width = `${song.progress || 3}%`;
+}
+
 function renderGrid() {
   const grid = $("song-grid");
   grid.innerHTML = "";
+  cardEls.clear();
   $("empty-msg").hidden = songs.length > 0;
+  if (!songs.length) $("add-panel").hidden = false; // palco vazio: já abre o form
   $("song-count").textContent = songs.length
     ? `${songs.length} música${songs.length > 1 ? "s" : ""}` : "";
   songs.forEach((song, i) => {
     const card = document.createElement("div");
     card.className = "song-card";
     card.style.animationDelay = `${Math.min(i * 0.05, 0.4)}s`;
-    const diff = diffOf(song);
-    const hasSync = !!song?.lyrics?.synced;
     const coverURL = song.hasCover || song.thumb ? `/api/cover/${song.id}` : null;
-
-    let statusPill = "";
-    if (PROCESSING.has(song.status)) {
-      statusPill = `<span class="pill working">${STATUS_LABEL[song.status] || "preparando…"}</span>`;
-    } else if (song.status === "ready" && song.stems) {
-      statusPill = `<span class="pill ready">✓ karaokê pronto</span>`;
-    } else if (song.status === "error") {
-      statusPill = `<span class="pill error" title="${(song.errorMsg || "").replace(/"/g, "&quot;")}">falhou — tentar de novo</span>`;
-    } else {
-      statusPill = `<span class="pill prepare">preparar karaokê</span>`;
-    }
-
     card.innerHTML = `
       ${coverURL
         ? `<img class="cover" src="${coverURL}" alt="" loading="lazy"
              onerror="this.outerHTML='<div class=cover-fallback>${(song.title || "?")[0].toUpperCase()}</div>'">`
         : `<div class="cover-fallback">${(song.title || "?")[0].toUpperCase()}</div>`}
       <button class="card-del" title="Remover">✕</button>
-      <button class="card-play" title="Cantar!">▶</button>
+      <button class="card-play" title="Cantar! (dá pra cantar até enquanto prepara)">▶</button>
       <div class="card-body">
         <div class="card-title"></div>
         <div class="card-artist"></div>
-        <div class="card-meta">
-          <span class="pill">${fmtTime(song.duration)}</span>
-          ${diff ? `<span class="pill diff ${diff.toLowerCase()}">${diff}</span>` : ""}
-          ${hasSync ? `<span class="pill">letra sync</span>` : ""}
-          ${statusPill}
-        </div>
+        <div class="card-meta"></div>
+        <div class="prog" hidden><i></i></div>
       </div>`;
     card.querySelector(".card-title").textContent = song.title || "Sem título";
     card.querySelector(".card-artist").textContent = song.artist || "—";
@@ -530,18 +633,24 @@ function renderGrid() {
       await api(`/api/songs/${song.id}`, { method: "DELETE" });
       loadSongs();
     };
-    const retry = card.querySelector(".pill.error, .pill.prepare");
-    if (retry) retry.onclick = async (e) => {
-      e.stopPropagation();
-      try {
-        await api(`/api/process/${song.id}`, { method: "POST" });
-        loadSongs();
-      } catch (err) { toast(err.message, true); }
-    };
     card.onclick = () => openPlayer(song);
     grid.appendChild(card);
+    const refs = {
+      card,
+      meta: card.querySelector(".card-meta"),
+      prog: card.querySelector(".prog"),
+      progFill: card.querySelector(".prog i"),
+    };
+    cardEls.set(song.id, refs);
+    updateCardStatus(song);
   });
 }
+
+$("add-toggle").onclick = () => {
+  const panel = $("add-panel");
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) $("url-input").focus();
+};
 
 async function warmLyrics(song) {
   try { await api(`/api/lyrics/${song.id}`); } catch {}
@@ -562,6 +671,7 @@ async function uploadFile(file) {
     fd.append("file", file);
     const song = await api("/api/upload", { method: "POST", body: fd });
     toast(`🎵 "${song.title}" no repertório! Preparando o karaokê…`);
+    $("add-panel").hidden = true;
     await loadSongs();
     warmLyrics(song);
   } catch (err) {
@@ -583,6 +693,7 @@ async function addLink() {
     });
     $("url-input").value = "";
     toast(`🎵 "${song.title}" baixada! Preparando o karaokê…`);
+    $("add-panel").hidden = true;
     await loadSongs();
     warmLyrics(song);
   } catch (err) {
@@ -736,7 +847,7 @@ function tick() {
       if (score.samples.length > 3000) score.samples.splice(0, 1500);
     }
   }
-  updatePitchMeter();
+  drawLane();
 
   if (!lyrLines.length) return;
   const t = lyricTime();
@@ -814,6 +925,8 @@ async function openPlayer(song) {
   // pontuação: melodia de referência + mic (se o usuário deixou ligado)
   resetScore();
   score.ref = null;
+  laneRange = null;
+  $("pitch-lane").hidden = true;
   if (useStems) {
     fetch(`/api/pitch/${song.id}`)
       .then((r) => (r.ok ? r.json() : null))

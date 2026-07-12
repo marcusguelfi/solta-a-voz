@@ -78,6 +78,8 @@ def _save_lib(lib: dict) -> None:
 
 
 def _update_entry(sid: str, **fields) -> dict:
+    if "status" in fields:  # base da estimativa de progresso do preparo
+        fields.setdefault("stageAt", time.time())
     with _lock:
         lib = _load_lib()
         if sid not in lib:
@@ -731,10 +733,31 @@ def add_from_link(body: LinkBody):
     return _get_entry(sid)
 
 
+# faixa de % por estágio + custo esperado (medido neste i7-7700, CPU)
+STAGE_PROGRESS = {
+    "queued": (2, 8, 30.0),        # (início%, fim%, segundos esperados fixos)
+    "separating": (8, 72, None),   # None = proporcional à duração da música
+    "analyzing": (72, 88, None),
+    "aligning": (88, 98, None),
+}
+STAGE_FACTOR = {"separating": 1.8, "analyzing": 0.35, "aligning": 0.6}
+
+
+def _with_progress(entry: dict) -> dict:
+    stage = STAGE_PROGRESS.get(entry.get("status"))
+    if not stage:
+        return entry
+    lo, hi, fixed = stage
+    expected = fixed or max(30.0, (entry.get("duration") or 240) * STAGE_FACTOR[entry["status"]])
+    elapsed = time.time() - (entry.get("stageAt") or time.time())
+    frac = min(0.97, max(0.0, elapsed / expected))
+    return {**entry, "progress": round(lo + (hi - lo) * frac)}
+
+
 @app.get("/api/songs")
 def list_songs():
     lib = _load_lib()
-    return sorted(lib.values(), key=lambda e: -e.get("addedAt", 0))
+    return [_with_progress(e) for e in sorted(lib.values(), key=lambda e: -e.get("addedAt", 0))]
 
 
 class SongPatch(BaseModel):

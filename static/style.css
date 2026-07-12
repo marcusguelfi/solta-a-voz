@@ -69,8 +69,8 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 
 /* ---------- painel de adicionar ---------- */
 .add-panel {
-  display: flex; flex-direction: column; gap: 14px; margin-bottom: 60px;
-  animation: rise .7s .22s cubic-bezier(.2,.9,.3,1) both;
+  display: flex; flex-direction: column; gap: 14px; margin-bottom: 26px;
+  animation: rise .4s cubic-bezier(.2,.9,.3,1) both;
 }
 .dropzone {
   border: 2px dashed #3c2b52; border-radius: var(--radius);
@@ -121,7 +121,8 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 @keyframes eq { 0%,100% { height: 5px; } 50% { height: 22px; } }
 
 /* ---------- biblioteca ---------- */
-.lib-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; }
+.lib-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+.add-toggle { margin-left: auto; padding: 11px 20px; }
 .lib-head h2 { font-family: var(--font-display); font-size: 1.9rem; font-weight: 700; }
 .count { color: var(--ink-dim); font-size: .95rem; }
 .empty { color: var(--ink-dim); padding: 30px 4px; }
@@ -184,6 +185,16 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 }
 .song-card:hover .card-del { opacity: 1; }
 .card-del:hover { color: var(--magenta); }
+
+/* progresso do preparo no card */
+.prog {
+  height: 5px; background: #2b1f3d; border-radius: 3px;
+  margin-top: 10px; overflow: hidden;
+}
+.prog i {
+  display: block; height: 100%; border-radius: 3px;
+  background: var(--grad); transition: width 1s linear;
+}
 
 /* ---------- player ---------- */
 .player {
@@ -352,25 +363,12 @@ input[type="range"]::-moz-range-thumb {
   100% { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(.95); }
 }
 
-.pitch-meter {
-  display: flex; align-items: center; gap: 10px; justify-content: center;
+/* pitch lane: melodia do cantor original + rastro da sua voz */
+.pitch-lane {
+  width: 100%; max-width: 920px; height: 96px; margin: 0 auto;
+  background: color-mix(in srgb, var(--bg-raised) 60%, transparent);
+  border: 1px solid #2b1f3d; border-radius: 12px; display: block;
 }
-.pm-label { font-size: .74rem; color: #6d5e83; }
-.pm-track {
-  position: relative; width: 220px; height: 10px; border-radius: 5px;
-  background: linear-gradient(90deg, #3c2b52, #2b1f3d 35%, #2b4a3d 48%, #2b4a3d 52%, #2b1f3d 65%, #3c2b52);
-}
-.pm-center {
-  position: absolute; left: 50%; top: -3px; width: 2px; height: 16px;
-  background: var(--easy); opacity: .8; transform: translateX(-50%);
-}
-.pm-marker {
-  position: absolute; top: -3px; width: 16px; height: 16px; border-radius: 50%;
-  transform: translateX(-50%); transition: left .12s linear;
-}
-.pm-marker.good { background: var(--easy); box-shadow: 0 0 12px var(--easy); }
-.pm-marker.ok { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
-.pm-marker.bad { background: var(--magenta); box-shadow: 0 0 10px var(--magenta); }
 
 .results {
   position: absolute; inset: 0; z-index: 6; display: flex;
