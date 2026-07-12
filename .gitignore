@@ -1,0 +1,14 @@
+# ambiente
+.venv/
+__pycache__/
+*.pyc
+
+# ffmpeg portátil (baixar de gyan.dev — ver README)
+tools/
+
+# mídia, stems e modelos de IA do usuário
+data/
+
+# logs e temporários
+*.log
+*.err

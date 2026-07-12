@@ -1,0 +1,138 @@
+# CLAUDE.md — Solta a Voz 🎤
+
+Guia pra qualquer sessão do Claude (ou humano) trabalhar neste projeto sem re-descobrir decisões.
+
+## O que é
+
+Karaokê caseiro self-hosted do Marcus. Fluxo do usuário: **cola um link ou sobe um
+arquivo → o app prepara tudo sozinho → entra e canta com pontuação**. Roda 100%
+local (Windows 10, i7-7700, GTX 1060, 16GB), servidor na porta **8777**.
+
+## Como rodar
+
+```bat
+:: primeira vez — OBRIGATÓRIO Python 3.13 (3.14 quebra o stack de IA: diffq sem wheel)
+py -3.13 -m venv .venv
+.venv\Scripts\pip install -r requirements.txt "audio-separator[cpu]" stable-ts soundfile numpy
+
+:: sempre
+start.bat          :: abre o navegador e sobe o servidor
+```
+
+- ffmpeg **portátil** em `tools\ffmpeg\bin` (build essentials do gyan.dev) — o
+  servidor injeta no PATH em `server/main.py`. Não dependa de ffmpeg global.
+- Modelos de IA baixam sozinhos no primeiro uso pra `data\models` (~50MB MDX,
+  ~460MB Whisper small, ~610MB BS-Roformer se usado).
+- Dev com preview do Claude Code: config `karaoke` no `.claude/launch.json` do
+  projeto pc-control-client (histórico: a sessão nasceu lá).
+
+## Arquitetura
+
+```
+server/main.py     FastAPI + worker de pipeline (thread única + queue.Queue)
+static/index.html  UI única (biblioteca + player fullscreen)
+static/app.js      motor de áudio (Web Audio), letra, pontuação — vanilla JS
+static/style.css   tema "palco escuro" (magenta #ff2d78 / âmbar #ffb347)
+data/library.json  banco de dados (dict por id, escrita sob threading.Lock)
+data/media/        áudio original ({id}.ext)
+data/stems/{id}/   vocals.mp3, instrumental.mp3, pitch.json
+tools/ffmpeg/      ffmpeg portátil (fora do git)
+```
+
+### Pipeline de preparo (worker, 1 música por vez)
+
+Status: `queued → separating → analyzing → aligning → ready` (ou `error`; jobs
+interrompidos por restart voltam pra fila no boot).
+
+1. **separating** — audio-separator, modelo `UVR-MDX-NET-Voc_FT.onnx`
+   (onnxruntime CPU). ~1,7× a duração da música neste i7. Gera WAVs.
+2. **analyzing** — melodia de referência do stem de voz: `librosa.pyin`
+   (fmin 65, fmax 1000, sr 16k, hop 512) → `pitch.json {hop, midi[]}` (null =
+   sem canto). É o gabarito da pontuação E a máscara de canto do alinhamento.
+3. **aligning** — cadeia de fallbacks, do melhor pro pior:
+   a. **Forced alignment (stable-ts/Whisper "small", CPU)** — `model.align()`
+      com `original_split=True` acha início E fim de cada linha CANTADA.
+      Resultado em `lyrics.lines = [{t, end, text}]`, `alignMethod: "whisper"`,
+      `autoOffset = 0`. Confiança: ≥70% das linhas com end>start>0, senão descarta.
+   b. **Correlação** — testa até 8 versões de letra do LRCLIB (a letra pode ser
+      de OUTRA versão da música!) contra a máscara de canto do pyin via
+      cross-correlation (±35s); escolhe a de maior cobertura → `autoOffset` global.
+   c. **Onset** — primeiro trecho com energia vocal vs 1ª linha do LRC.
+4. WAVs viram mp3 192k (ffmpeg) e são apagados.
+
+### Player (app.js)
+
+- **Modo stems** (música ready): dois `AudioBufferSource` (vocals + instrumental)
+  em sync de sample, gains independentes. Voz padrão **0%**. Limiter
+  (DynamicsCompressor) na saída.
+- **Modo center-cut** (música ainda processando): mid/side ao vivo no
+  MediaElementSource — mid highpass 140Hz = "voz" atenuável, graves preservados.
+  Dá pra cantar enquanto a IA trabalha.
+- Sliders com memória por modo no localStorage (`mix:vocal:stems` etc.).
+- **Letra**: usa `lyrics.lines` (com fim de frase!) quando existe; senão parse LRC.
+  `lyricTime() = getTime() - autoOffset + manualOffset + LYRIC_LEAD(0.45s)` —
+  o lead acende a linha um pouco ANTES do canto, como karaokê comercial.
+  Preenchimento da linha vai até `line.end` (não até a próxima linha!) — em pausa
+  instrumental a letra ESPERA com contagem regressiva (● ● ●).
+- Ajuste manual ±0,5s por música (localStorage `lyroff:{id}`).
+
+### Pontuação (estilo SingStar)
+
+- Mic: getUserMedia com echoCancellation → AnalyserNode (NÃO conecta na saída).
+- Pitch por autocorrelação (~15x/s, gate RMS 0.012, confiança 0.3) em app.js.
+- Compara com `pitch.json` com **tolerância de oitava** (fold mod 12 pra ±6) e
+  janela de ±350ms (latência do mic). Frase fecha nota 0-100 (finalize 650ms
+  depois da virada, pra colher as últimas amostras).
+- Nota final S(93%)/A(82%)/B(68%)/C(50%)/D(30%)/E + recorde em localStorage.
+- Pontuação SÓ no modo stems (precisa do gabarito de melodia).
+
+## API (resumo)
+
+| Método | Rota | Função |
+|---|---|---|
+| POST | /api/upload | multipart de áudio → entra na fila |
+| POST | /api/link | {url} → yt-dlp (m4a, sem ffmpeg) → fila |
+| GET | /api/songs | biblioteca ordenada por addedAt desc |
+| PATCH/DELETE | /api/songs/{id} | edita metadata / remove tudo |
+| POST | /api/process/{id} | re-enfileira preparo |
+| POST | /api/realign/{id} | só realinha letra (Whisper→correlação) |
+| GET | /api/lyrics/{id}?artist=&title= | busca LRCLIB (override re-alinha) |
+| GET | /api/audio/{id}, /api/stems/{id}/{vocals\|instrumental} | áudio com Range |
+| GET | /api/pitch/{id} | melodia de referência |
+| GET | /api/cover/{id} | capa embutida ou thumb do YouTube |
+
+## Regras e lições aprendidas (NÃO re-descobrir)
+
+- **Só música de ESTÚDIO** — regra do Marcus. Ao vivo tem plateia/reverb que
+  estragam separação e alinhamento. Ao buscar por link, preferir áudio oficial
+  de álbum / canal Topic / "Remastered". Há dica disso na UI.
+- **Offset global de letra NÃO basta** — o LRCLIB pode devolver letra de outra
+  versão; a única solução robusta é forced alignment (foi a maior reclamação
+  do Marcus: "a letra tem que seguir a cantoria, não a música").
+- **Python 3.14 não serve** (diffq/audio-separator sem wheels). Ficar no 3.13.
+- **Estáticos com cache**: middleware manda `Cache-Control: no-cache` em tudo
+  que não é /api. Clientes antigos podem precisar de UM Ctrl+F5.
+- Stems servem com `Cache-Control: no-store` (podem ser regravados por modelo melhor).
+- **BS-Roformer** (`model_bs_roformer_ep_317_sdr_12.9755.ckpt`): instrumental
+  muito melhor que MDX em produção densa, mas ~15× a duração da música em CPU —
+  só faz sentido com GPU ou paciência. torch já está no venv.
+- library.json: TODA escrita via `_update_entry`/`_add_entry` (lock). Leituras
+  são unlocked (transientes toleráveis).
+- Screenshot/aba do preview pode travar com blur pesado — os holofotes usam
+  radial-gradient, não `filter: blur()`. Manter assim.
+- yt-dlp avisa "No supported JavaScript runtime" — funciona mesmo assim; se o
+  YouTube quebrar formatos, instalar deno ou atualizar yt-dlp.
+
+## Roadmap (ideias já discutidas)
+
+- GPU: onnxruntime-directml (GTX 1060) pra separar em segundos; roformer viável.
+- Barra de progresso real do preparo no card (estimativa por estágio).
+- Fila de festa (próximas músicas, vários cantores, placar da noite).
+- Gráfico de tom estilo "pitch lane" (notas do cantor original + sua voz).
+- Duetos (duas linhas de melodia), modo treino (loop de trecho).
+
+## Convenções
+
+- UI e comentários em **PT-BR**; sem frameworks JS; sem build step.
+- Commits SEM assinatura do Claude (pedido do Marcus).
+- Testar mudança de player no preview antes de entregar (ver launch.json).

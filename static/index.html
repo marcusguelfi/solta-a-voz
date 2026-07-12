@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solta a Voz — karaokê caseiro</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎤</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+
+<div class="stage-lights" aria-hidden="true">
+  <div class="spot spot-a"></div>
+  <div class="spot spot-b"></div>
+  <div class="grain"></div>
+</div>
+
+<!-- ======================= BIBLIOTECA ======================= -->
+<main id="library-view">
+  <header class="hero">
+    <h1 class="logo">SOLTA<br><span>A&nbsp;VOZ</span></h1>
+    <p class="tagline">seu karaokê caseiro — suba uma música ou cole um link,<br>a gente abaixa a voz e sobe a letra 🎤</p>
+  </header>
+
+  <section class="add-panel">
+    <div id="dropzone" class="dropzone" tabindex="0">
+      <div class="dz-icon">⇪</div>
+      <strong>Arraste um áudio aqui</strong>
+      <span>ou clique para escolher · mp3, m4a, flac, wav, ogg</span>
+      <input type="file" id="file-input" accept=".mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.webm" hidden>
+    </div>
+    <div class="link-row">
+      <input type="url" id="url-input" placeholder="…ou cole o link (YouTube etc.) e aperte Enter" spellcheck="false">
+      <button id="url-btn" class="btn-accent">Baixar</button>
+    </div>
+    <p class="add-hint">💡 prefira áudio de <b>estúdio</b> — ao vivo tem plateia e reverb que atrapalham a separação da voz</p>
+    <div id="add-progress" class="add-progress" hidden>
+      <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+      <span id="add-progress-label">preparando…</span>
+    </div>
+  </section>
+
+  <section class="library">
+    <div class="lib-head">
+      <h2>Repertório</h2>
+      <span id="song-count" class="count"></span>
+    </div>
+    <div id="song-grid" class="song-grid"></div>
+    <p id="empty-msg" class="empty" hidden>palco vazio… adiciona a primeira música aí em cima 👆</p>
+  </section>
+</main>
+
+<!-- ======================= PLAYER ======================= -->
+<div id="player-view" class="player" hidden>
+  <header class="player-top">
+    <button id="back-btn" class="btn-ghost" title="Voltar (Esc)">← repertório</button>
+    <div class="now-playing">
+      <div id="p-title" class="p-title"></div>
+      <div id="p-artist" class="p-artist"></div>
+    </div>
+    <div id="p-diff" class="diff-badge"></div>
+    <button id="mic-btn" class="mic-btn" title="Ativar microfone e pontuação">🎤 pontuar</button>
+    <div id="score-chip" class="score-chip" hidden>⭐ <b id="score-val">0</b></div>
+  </header>
+
+  <section id="lyrics-box" class="lyrics-box">
+    <div id="countdown" class="countdown" hidden><i></i><i></i><i></i></div>
+    <div id="rating-pop" class="rating-pop" hidden></div>
+    <div id="lyrics-scroller" class="lyrics-scroller"></div>
+    <div id="lyrics-fallback" class="lyrics-fallback" hidden>
+      <p id="fallback-msg">Nenhuma letra encontrada 😕</p>
+      <div class="retry-row">
+        <input id="retry-artist" placeholder="artista">
+        <input id="retry-title" placeholder="título">
+        <button id="retry-btn" class="btn-accent">Buscar letra</button>
+      </div>
+      <pre id="plain-lyrics" class="plain-lyrics" hidden></pre>
+    </div>
+  </section>
+
+  <footer class="controls">
+    <div class="transport">
+      <button id="play-btn" class="play-btn" title="Play/Pause (espaço)">▶</button>
+      <span id="cur-time" class="time">0:00</span>
+      <input type="range" id="seek" min="0" max="1000" value="0" class="seek">
+      <span id="tot-time" class="time">0:00</span>
+    </div>
+    <div class="mixer">
+      <label class="slider-group vocal">
+        <span class="slider-label">🎙 Voz <b id="vocal-pct">25%</b></span>
+        <input type="range" id="vocal-slider" min="0" max="100" value="25">
+      </label>
+      <label class="slider-group">
+        <span class="slider-label">🎸 Instrumental <b id="inst-pct">100%</b></span>
+        <input type="range" id="inst-slider" min="0" max="130" value="100">
+      </label>
+      <div class="offset-group" title="Ajuste fino da sincronia da letra (o offset automático já foi aplicado)">
+        <span class="slider-label">⏱ Letra <span id="off-auto" class="off-auto"></span></span>
+        <button id="off-minus" class="btn-mini" title="letra adiantada? atrasa 0,5s">−0,5s</button>
+        <b id="off-val">+0,0s</b>
+        <button id="off-plus" class="btn-mini" title="letra atrasada? adianta 0,5s">+0,5s</button>
+      </div>
+    </div>
+    <div id="pitch-meter" class="pitch-meter" hidden>
+      <span class="pm-label">tom</span>
+      <div class="pm-track"><div class="pm-center"></div><div id="pm-marker" class="pm-marker"></div></div>
+    </div>
+    <p class="mixer-hint" id="mode-hint"></p>
+  </footer>
+
+  <div id="results" class="results" hidden>
+    <div class="results-card">
+      <h2 id="res-grade">A</h2>
+      <p id="res-total">0 pontos</p>
+      <p id="res-detail"></p>
+      <p id="res-record" class="res-record"></p>
+      <div class="res-actions">
+        <button id="res-again" class="btn-accent">🎤 Cantar de novo</button>
+        <button id="res-back" class="btn-ghost">voltar ao repertório</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+<audio id="audio" crossorigin="anonymous" preload="auto"></audio>
+
+<script src="app.js?v=2"></script>
+</body>
+</html>
