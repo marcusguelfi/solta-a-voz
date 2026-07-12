@@ -200,6 +200,7 @@ function engineSeek(t) {
   } else {
     audio.currentTime = t;
   }
+  syncScoreCursor();
 }
 
 function engineIsPlaying() {
@@ -228,7 +229,7 @@ const score = {
   ref: null,            // {hop, midi[]} — melodia de referência
   samples: [],          // amostras do mic: {t (tempo do áudio), midi}
   lastSample: null,
-  lineIdx: -1,
+  nextToScore: 0, // próxima linha da letra a ser pontuada
   total: 0, maxPossible: 0, lineResults: [],
 };
 let micTickCount = 0;
@@ -301,12 +302,21 @@ function disableMic() {
 function resetScore() {
   score.samples = [];
   score.lastSample = null;
-  score.lineIdx = -1;
+  score.nextToScore = 0;
   score.total = 0;
   score.maxPossible = 0;
   score.lineResults = [];
   $("score-val").textContent = "0";
   $("results").hidden = true;
+}
+
+// seek pula frases: pontuação recomeça da primeira frase que ainda vai tocar
+function syncScoreCursor() {
+  const lt = lyricTime();
+  let i = 0;
+  while (i < lyrLines.length &&
+         ((lyrLines[i].end ?? lyrLines[i].t + 6) + 0.7) <= lt) i++;
+  score.nextToScore = i;
 }
 
 // menor erro (em semitons, oitava dobrada) entre a nota cantada e a referência
@@ -381,7 +391,11 @@ function showRating(label, pts) {
 }
 
 function showResults() {
-  if (score.lineIdx >= 0) finalizeLine(score.lineIdx); // última frase
+  // fecha as frases que ainda não pontuaram (a última raramente fecha sozinha)
+  while (score.nextToScore < lyrLines.length &&
+         lyrLines[score.nextToScore].t < lyricTime() + 1) {
+    finalizeLine(score.nextToScore++);
+  }
   if (!score.maxPossible) return;
   const pct = (score.total / score.maxPossible) * 100;
   const grade = pct >= 93 ? "S" : pct >= 82 ? "A" : pct >= 68 ? "B" :
@@ -855,19 +869,27 @@ function tick() {
   for (let i = 0; i < lyrLines.length; i++) {
     if (lyrLines[i].t <= t) idx = i; else break;
   }
+  // a linha segue a CANTORIA: só fica acesa enquanto a frase é cantada —
+  // terminou a frase (outro, solo, lá-lá-lá), apaga e vira "done"
+  const cur = idx >= 0 ? lyrLines[idx] : null;
+  const curEnd = cur ? (cur.end ?? lyrLines[idx + 1]?.t ?? cur.t + 6) : 0;
+  const pastEnd = !!cur && cur.end != null && t > cur.end + 0.8;
   lyrLines.forEach((line, i) => {
-    line.el.classList.toggle("active", i === idx);
-    line.el.classList.toggle("done", i < idx);
+    const active = i === idx && !pastEnd;
+    line.el.classList.toggle("active", active);
+    line.el.classList.toggle("done", i < idx || (i === idx && pastEnd));
+    // limpa o preenchimento das não-ativas (senão "cantar de novo" fica tudo pintado)
+    if (!active && line.span.style.backgroundImage) line.span.style.backgroundImage = "";
   });
 
-  // frase terminou -> fecha a nota dela (só em progressão natural, não em seek).
-  // Pequeno atraso pra colher as últimas amostras — a linha vira LYRIC_LEAD mais cedo.
-  if (idx !== score.lineIdx) {
-    if (score.lineIdx >= 0 && idx === score.lineIdx + 1) {
-      const li = score.lineIdx;
-      setTimeout(() => finalizeLine(li), 650);
+  // pontuação: fecha cada frase quando a janela DELA termina (imune a seek e outro)
+  if (score.enabled) {
+    while (score.nextToScore < lyrLines.length) {
+      const ln = lyrLines[score.nextToScore];
+      const end = ln.end ?? lyrLines[score.nextToScore + 1]?.t ?? ln.t + 6;
+      if (t > end + 0.7) finalizeLine(score.nextToScore++);
+      else break;
     }
-    score.lineIdx = idx;
   }
 
   // contagem regressiva antes da primeira linha e em pausas longas
@@ -877,8 +899,7 @@ function tick() {
   if (next) {
     const wait = next.t - t;
     const inIntro = idx === -1 && wait > 1;
-    const curEnd = idx >= 0 ? (lyrLines[idx].end ?? lyrLines[idx].t + 6) : 0;
-    const inBreak = idx >= 0 && wait > 5 && t > curEnd + 1.5;
+    const inBreak = idx >= 0 && wait > 5 && (pastEnd || t > curEnd + 1.5);
     if ((inIntro || inBreak) && wait < 60) {
       showCd = true;
       cd.querySelectorAll("i").forEach((dot, n) => {
@@ -888,16 +909,17 @@ function tick() {
   }
   cd.hidden = !showCd;
 
-  if (idx >= 0) {
-    const line = lyrLines[idx];
-    // o preenchimento acompanha a duração CANTADA da frase, não o relógio da música
-    const lineEnd = line.end ?? lyrLines[idx + 1]?.t ?? dur ?? line.t + 5;
-    const p = Math.min(100, Math.max(0, ((t - line.t) / Math.max(lineEnd - line.t, 0.1)) * 100));
-    line.span.style.backgroundImage =
+  // preenchimento da linha ativa; sem linha ativa, a rolagem centraliza a PRÓXIMA
+  if (cur && !pastEnd) {
+    const p = Math.min(100, Math.max(0, ((t - cur.t) / Math.max(curEnd - cur.t, 0.1)) * 100));
+    cur.span.style.backgroundImage =
       `linear-gradient(90deg, #ff2d78, #ffb347 ${p}%, #f4eef8 ${p}%)`;
+  }
+  const focus = cur && !pastEnd ? cur : (next ?? cur ?? lyrLines[0]);
+  if (focus) {
     const box = $("lyrics-box");
     const scroller = $("lyrics-scroller");
-    const target = box.clientHeight / 2 - (line.el.offsetTop + line.el.offsetHeight / 2);
+    const target = box.clientHeight / 2 - (focus.el.offsetTop + focus.el.offsetHeight / 2);
     scroller.style.transform = `translateY(${target}px)`;
     scroller.style.margin = "0 auto";
   }
