@@ -483,32 +483,86 @@ def guess_language(text: str) -> str:
     return "pt" if pt >= en else "en"
 
 
+def _regroup_words_to_lines(result, line_texts: list[str]) -> list[tuple[float, float]] | None:
+    """Se os segmentos não baterem com as linhas, remapeia pelas palavras
+    (o align preserva a ordem exata do texto fornecido)."""
+    words = [w for seg in result.segments for w in seg.words]
+    counts = [len(t.split()) for t in line_texts]
+    if sum(counts) != len(words):
+        return None
+    out, i = [], 0
+    for c in counts:
+        chunk = words[i:i + c]
+        i += c
+        out.append((float(chunk[0].start), float(chunk[-1].end)))
+    return out
+
+
+def _interpolate_bad_lines(lines: list[dict], good: list[int]) -> None:
+    """Linhas que o Whisper não cravou são distribuídas entre as âncoras boas
+    (rap denso: melhor estimar do que jogar fora o alinhamento inteiro)."""
+    for i, ln in enumerate(lines):
+        if ln.pop("_ok"):
+            continue
+        prev_g = max((g for g in good if g < i), default=None)
+        next_g = min((g for g in good if g > i), default=None)
+        if prev_g is None and next_g is None:
+            return
+        if prev_g is None:
+            step = (lines[next_g]["t"]) / max(next_g, 1)
+            ln["t"] = round(max(0.0, lines[next_g]["t"] - (next_g - i) * step), 2)
+            ln["end"] = round(ln["t"] + max(step - 0.2, 1.0), 2)
+        elif next_g is None:
+            ln["t"] = round(lines[prev_g]["end"] + (i - prev_g - 1) * 2.5 + 0.3, 2)
+            ln["end"] = round(ln["t"] + 2.0, 2)
+        else:
+            a, b = lines[prev_g]["end"], lines[next_g]["t"]
+            count = next_g - prev_g - 1
+            slot = max((b - a) / max(count, 1), 0.5)
+            k = i - prev_g - 1
+            ln["t"] = round(a + slot * k + 0.05, 2)
+            ln["end"] = round(min(a + slot * (k + 1) - 0.05, b), 2)
+
+
 def whisper_align_lines(sid: str, line_texts: list[str]) -> list[dict] | None:
     vocals = STEMS / sid / "vocals.mp3"
     if not vocals.exists():
         return None
     text = "\n".join(line_texts)
     model = _get_whisper()
-    result = model.align(str(vocals), text, language=guess_language(text),
-                         original_split=True)
-    segs = list(result.segments)
-    if len(segs) != len(line_texts):
-        return None
-    lines = []
-    ok = 0
-    for seg, txt in zip(segs, line_texts):
-        start, end = float(seg.start), float(seg.end)
-        if end > start > 0:
-            ok += 1
-        lines.append({"t": round(start, 2), "end": round(end, 2), "text": txt})
-    if ok < len(lines) * 0.7:  # alinhamento fraco demais pra confiar
-        return None
-    for i in range(1, len(lines)):  # tempos sempre crescentes
-        if lines[i]["t"] <= lines[i - 1]["t"]:
-            lines[i]["t"] = round(lines[i - 1]["t"] + 0.05, 2)
-        if lines[i]["end"] < lines[i]["t"]:
-            lines[i]["end"] = round(lines[i]["t"] + 1.5, 2)
-    return lines
+    lang = guess_language(text)
+
+    # rap/fluxo denso às vezes falha com a supressão de silêncio — tenta sem ela
+    for attempt in ({}, {"suppress_silence": False}):
+        try:
+            result = model.align(str(vocals), text, language=lang,
+                                 original_split=True, **attempt)
+        except Exception:
+            continue
+        segs = list(result.segments)
+        if len(segs) == len(line_texts):
+            spans = [(float(s.start), float(s.end)) for s in segs]
+        else:
+            spans = _regroup_words_to_lines(result, line_texts)
+            if spans is None:
+                continue
+        lines, good = [], []
+        for i, ((start, end), txt) in enumerate(zip(spans, line_texts)):
+            valid = end > start > 0
+            if valid:
+                good.append(i)
+            lines.append({"t": round(start, 2), "end": round(end, 2),
+                          "text": txt, "_ok": valid})
+        if len(good) < max(4, len(lines) * 0.5):
+            continue  # fraco demais mesmo pra salvar — tenta próxima variante
+        _interpolate_bad_lines(lines, good)
+        for i in range(1, len(lines)):  # tempos sempre crescentes
+            if lines[i]["t"] <= lines[i - 1]["t"]:
+                lines[i]["t"] = round(lines[i - 1]["t"] + 0.05, 2)
+            if lines[i]["end"] < lines[i]["t"]:
+                lines[i]["end"] = round(lines[i]["t"] + 1.5, 2)
+        return lines
+    return None
 
 
 def align_lyrics_to_vocals(sid: str) -> dict | None:
@@ -641,7 +695,7 @@ def process_song(sid: str) -> None:
         if align_lyrics_to_vocals(sid):
             auto_offset = 0.0
     except Exception:
-        pass
+        logging.exception("forced alignment falhou no pipeline pra %s", sid)
 
     _update_entry(sid, status="ready", stems=True, autoOffset=auto_offset,
                   vocalOnset=onset, errorMsg=None)
@@ -841,6 +895,7 @@ def realign(sid: str):
         result = align_lyrics_to_vocals(sid)
         method = "whisper"
     except Exception:
+        logging.exception("forced alignment falhou pra %s", sid)
         result = None
         method = None
     if not result:
