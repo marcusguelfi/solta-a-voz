@@ -51,16 +51,14 @@ original que serve de gabarito.
 
 ## Rodando
 
+**Roda 100% local e sozinho — não depende de Claude, de API paga nem de nuvem.**
+Internet só é usada pra baixar música por link (yt-dlp) e buscar letra (LRCLIB).
+
 ```bat
-:: primeira vez (Python 3.13 — o stack de IA ainda não suporta 3.14)
-py -3.13 -m venv .venv
-.venv\Scripts\pip install -r requirements.txt "audio-separator[cpu]" stable-ts soundfile numpy
+:: em qualquer computador novo (só precisa do Python 3.13 instalado):
+setup.bat        :: cria o venv, instala tudo e baixa o ffmpeg portátil
 
-:: ffmpeg portátil (uma vez): baixe o zip "release essentials" de
-:: https://www.gyan.dev/ffmpeg/builds/ e extraia como tools\ffmpeg
-:: (deve existir tools\ffmpeg\bin\ffmpeg.exe)
-
-:: sempre
+:: sempre:
 start.bat        (ou: .venv\Scripts\python.exe server\main.py)
 ```
 

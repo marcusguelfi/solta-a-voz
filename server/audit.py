@@ -1,7 +1,8 @@
 """Pente fino do alinhamento letra-cantoria.
 
-Uso:  .venv\\Scripts\\python.exe server\\audit.py [id-da-musica]
-Sem argumento, audita a biblioteca inteira.
+Uso:  .venv\\Scripts\\python.exe server\\audit.py [id-da-musica] [--web]
+Sem id, audita a biblioteca inteira. Com --web, cruza a letra com uma fonte
+externa independente (lyrics.ovh) e aponta frases que faltam/sobram.
 
 Pra cada frase alinhada mede:
 - canto%   — frames com voz AFINADA (pyin) dentro da janela (bom pra melodia)
@@ -9,9 +10,14 @@ Pra cada frase alinhada mede:
 e aponta: GHOST (frase sem energia = não existe nessa gravação), STRETCH
 (janela esticada demais), FORA (além do fim do áudio), OVERLAP (invade a próxima).
 """
+import difflib
 import json
+import re
 import statistics
 import sys
+import unicodedata
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
@@ -30,6 +36,47 @@ def energy_envelope(vocals_path: Path):
     rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop)[0]
     thr = float(np.percentile(rms, 95)) * 0.15
     return (rms > thr).astype(float), hop / sr
+
+
+def _norm_lines(text: str) -> list[str]:
+    out = []
+    for ln in (text or "").splitlines():
+        t = unicodedata.normalize("NFD", ln.lower())
+        t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+        t = re.sub(r"[^a-z0-9 ]", "", t).strip()
+        if t:
+            out.append(t)
+    return out
+
+
+def cross_check_web(entry: dict) -> None:
+    """Compara nossa letra com uma fonte independente (lyrics.ovh)."""
+    artist = re.split(r"\s*[,;/&]\s*", entry.get("artist") or "")[0]
+    title = re.sub(r"[(\[][^)\]]*[)\]]", "", entry.get("title") or "").strip()
+    url = (f"https://api.lyrics.ovh/v1/"
+           f"{urllib.parse.quote(artist)}/{urllib.parse.quote(title)}")
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            web_text = json.loads(r.read().decode("utf-8")).get("lyrics") or ""
+    except Exception:
+        print("  [web] fonte externa não tem essa música (ou está fora do ar)")
+        return
+    ours = _norm_lines("\n".join(
+        ln["text"] for ln in (entry.get("lyrics") or {}).get("lines") or []))
+    web = _norm_lines(web_text)
+    if not ours or not web:
+        print("  [web] sem texto suficiente pra comparar")
+        return
+    ratio = difflib.SequenceMatcher(None, " ".join(ours), " ".join(web)).ratio()
+    # fontes quebram linhas diferente: compara também com pares de linhas juntas
+    targets = ours + [f"{ours[i]} {ours[i + 1]}" for i in range(len(ours) - 1)]
+    missing = [w for w in dict.fromkeys(web)
+               if not any(w in o or difflib.SequenceMatcher(None, w, o).ratio() > 0.8
+                          for o in targets)]
+    print(f"  [web] similaridade com fonte externa: {ratio*100:.0f}%"
+          f" | frases de lá que faltam aqui: {len(missing)}")
+    for m in missing[:5]:
+        print(f"        falta? «{m}»")
 
 
 def audit_song(sid: str, entry: dict) -> dict | None:
@@ -93,13 +140,17 @@ def audit_song(sid: str, entry: dict) -> dict | None:
 
 def main():
     lib = json.loads((BASE / "data" / "library.json").read_text(encoding="utf-8"))
-    targets = [sys.argv[1]] if len(sys.argv) > 1 else list(lib.keys())
+    args = [a for a in sys.argv[1:] if a != "--web"]
+    with_web = "--web" in sys.argv
+    targets = args if args else list(lib.keys())
     results = []
     for sid in targets:
         if sid not in lib:
             print(f"id {sid} não existe na biblioteca")
             continue
         r = audit_song(sid, lib[sid])
+        if r and with_web:
+            cross_check_web(lib[sid])
         if r:
             results.append(r)
     if len(results) > 1:

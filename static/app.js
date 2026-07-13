@@ -507,23 +507,20 @@ function drawLane() {
     return laneModes[i];
   };
 
-  for (let i = 0; i < wins.length; i++) {
-    const [a, b] = wins[i];
-    if (b < t0 || a > t1) continue;
-    const inNow = i === nowWinIdx;
-    const mode = windowMode(i);
-    const arr = mode === "melody" ? midi : energy;
-    const isOn = mode === "melody" ? (v) => v !== null : (v) => v === 1;
+  // desenha uma camada de segmentos dentro de [a,b]∩[t0,t1]
+  const drawSegs = (arr, isOn, a, b, inNow, opts) => {
     const k0 = Math.max(0, Math.floor(Math.max(a, t0) / hop));
     const k1 = Math.min(arr.length - 1, Math.ceil(Math.min(b, t1) / hop));
     let segStart = null, segSum = 0, segN = 0, prevM = null;
     const flush = (endK) => {
       if (segStart !== null && segN >= 2) {
         const x1 = X(segStart * hop), x2 = X(endK * hop);
-        const yy = mode === "melody" ? Y(segSum / segN) : h / 2;
-        ctx.fillStyle = colorFor(endK * hop, inNow);
+        const yy = opts.pitched ? Y(segSum / segN) : h / 2;
+        ctx.fillStyle = opts.faint
+          ? (inNow ? "rgba(255,179,71,.30)" : "rgba(157,143,176,.22)")
+          : colorFor(endK * hop, inNow);
         ctx.beginPath();
-        ctx.roundRect(x1, yy - 3.5, Math.max(x2 - x1, 3), 7, 3.5);
+        ctx.roundRect(x1, yy - opts.hpx / 2, Math.max(x2 - x1, 3), opts.hpx, opts.hpx / 2);
         ctx.fill();
       }
       segStart = null; segSum = 0; segN = 0;
@@ -531,15 +528,28 @@ function drawLane() {
     for (let k = k0; k <= k1; k++) {
       const v = arr[k];
       const on = isOn(v);
-      if (!on || (mode === "melody" && prevM !== null && Math.abs(v - prevM) > 0.7)) flush(k);
+      if (!on || (opts.pitched && prevM !== null && Math.abs(v - prevM) > 0.7)) flush(k);
       if (on) {
         if (segStart === null) segStart = k;
-        if (mode === "melody") segSum += v;
+        if (opts.pitched) segSum += v;
         segN++;
       }
-      prevM = mode === "melody" && on ? v : null;
+      prevM = opts.pitched && on ? v : null;
     }
     flush(k1);
+  };
+
+  for (let i = 0; i < wins.length; i++) {
+    const [a, b] = wins[i];
+    if (b < t0 || a > t1) continue;
+    const inNow = i === nowWinIdx;
+    if (windowMode(i) === "melody") {
+      // faixa fina de energia embaixo (toda a frase marcada) + notas por cima
+      if (energy) drawSegs(energy, (v) => v === 1, a, b, inNow, { pitched: false, hpx: 3, faint: true });
+      drawSegs(midi, (v) => v !== null, a, b, inNow, { pitched: true, hpx: 7 });
+    } else {
+      drawSegs(energy, (v) => v === 1, a, b, inNow, { pitched: false, hpx: 7 });
+    }
   }
 
   // linha do "agora"
