@@ -565,13 +565,41 @@ def whisper_align_lines(sid: str, line_texts: list[str]) -> list[dict] | None:
     return None
 
 
+def reconcile_with_lrc(lines: list[dict], lrc: list[tuple[float, str]]) -> dict:
+    """O Whisper é preciso localmente, mas se perde em REFRÕES REPETIDOS (atribui
+    a frase à repetição errada e estica a janela). O LRC humano tem offset global,
+    porém estrutura relativa confiável — serve de trilho: linha do Whisper que
+    fugir do trilho volta pro tempo do LRC deslocado; nenhuma frase invade a próxima."""
+    import statistics
+
+    n = min(len(lines), len(lrc))
+    offset = statistics.median(lines[i]["t"] - lrc[i][0] for i in range(n))
+    tol = 3.5
+    fixed = 0
+    for i in range(n):
+        expected = lrc[i][0] + offset
+        if abs(lines[i]["t"] - expected) > tol:
+            nxt = (lrc[i + 1][0] + offset) if i + 1 < n else expected + 5
+            lines[i]["t"] = round(expected, 2)
+            lines[i]["end"] = round(max(min(expected + 8, nxt - 0.05), expected + 0.6), 2)
+            fixed += 1
+    for i in range(len(lines) - 1):  # fim nunca passa do início da próxima
+        if lines[i]["end"] > lines[i + 1]["t"] - 0.02:
+            lines[i]["end"] = round(max(lines[i]["t"] + 0.6, lines[i + 1]["t"] - 0.05), 2)
+    return {"fixed": fixed, "offset": round(offset, 2)}
+
+
 def align_lyrics_to_vocals(sid: str) -> dict | None:
     """Re-cronometra a letra pela cantoria real. Funciona até com letra sem sync."""
     entry = _get_entry(sid)
     lyr = entry.get("lyrics") or {}
-    if lyr.get("synced"):
-        texts = [t for _t, t in parse_lrc(lyr["synced"])]
+    # preserva o LRC original (fonte humana) — alinhamentos futuros validam contra ele
+    orig_synced = lyr.get("origSynced") or lyr.get("synced")
+    if orig_synced:
+        base_lines = parse_lrc(orig_synced)
+        texts = [t for _t, t in base_lines]
     elif lyr.get("plain"):
+        base_lines = None
         texts = [ln.strip() for ln in lyr["plain"].splitlines() if ln.strip()]
     else:
         return None
@@ -580,11 +608,15 @@ def align_lyrics_to_vocals(sid: str) -> dict | None:
     lines = whisper_align_lines(sid, texts)
     if not lines:
         return None
+    reconciled = None
+    if base_lines and len(base_lines) == len(lines):
+        reconciled = reconcile_with_lrc(lines, base_lines)
     new_synced = "\n".join(
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
+              "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
-              "alignMethod": "whisper"}
+              "alignMethod": "whisper", "reconciled": reconciled}
     _update_entry(sid, lyrics=result, autoOffset=0)
     return result
 
@@ -906,7 +938,7 @@ def realign(sid: str):
     entry = _get_entry(sid)
     return {"method": method, "autoOffset": entry.get("autoOffset"),
             "alignScore": result.get("alignScore"), "lines": len(result.get("lines") or []),
-            "matched": result.get("matched")}
+            "reconciled": result.get("reconciled"), "matched": result.get("matched")}
 
 
 @app.get("/api/pitch/{sid}")
