@@ -437,14 +437,21 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
             if len(candidates) >= 8:
                 break
 
+    duration = entry.get("duration") or 0
     best = None
     for cand in candidates:
         got = correlation_align(pitch, cand["syncedLyrics"])
-        if got and (best is None or got[1] > best[2]):
-            best = (cand, got[0], got[1])
+        if not got:
+            continue
+        offset, coverage = got
+        # letra de OUTRA versão da música (ao vivo estendida etc.) perde pontos
+        cand_dur = cand.get("duration") or 0
+        score = coverage - (0.15 if cand_dur and duration and abs(cand_dur - duration) > 25 else 0.0)
+        if best is None or score > best[3]:
+            best = (cand, offset, coverage, score)
     if not best:
         return None
-    cand, offset, coverage = best
+    cand, offset, coverage, _score = best
     result = {
         "found": True,
         "synced": cand["syncedLyrics"],
@@ -611,6 +618,16 @@ def align_lyrics_to_vocals(sid: str) -> dict | None:
     reconciled = None
     if base_lines and len(base_lines) == len(lines):
         reconciled = reconcile_with_lrc(lines, base_lines)
+    # letra de versão mais longa (ao vivo): frases além do fim do áudio não
+    # existem nesta gravação — descarta em vez de espremer no finalzinho
+    duration = entry.get("duration") or 0
+    if duration:
+        kept = [ln for ln in lines if ln["t"] < duration - 2]
+        if len(kept) >= 4 and len(kept) < len(lines):
+            if reconciled is None:
+                reconciled = {}
+            reconciled["droppedBeyondAudio"] = len(lines) - len(kept)
+            lines = kept
     new_synced = "\n".join(
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
@@ -639,7 +656,12 @@ def extract_pitch(wav_path: Path) -> dict | None:
                 midi.append(None)
         if not any(m is not None for m in midi):
             return None
-        return {"hop": hop / sr, "midi": midi}
+        # energia vocal (pega rap FALADO, que o pyin não vê) — base do modo ritmo
+        rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop)[0]
+        thr = float(np.percentile(rms, 95)) * 0.15
+        energy = [1 if float(v) > thr else 0 for v in rms[:len(midi)]]
+        energy += [0] * (len(midi) - len(energy))
+        return {"hop": hop / sr, "midi": midi, "energy": energy}
     except Exception:
         return None
 

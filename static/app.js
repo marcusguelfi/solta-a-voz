@@ -423,6 +423,7 @@ function showResults() {
 // (janela: 2s de passado, 6s de futuro) + rastro colorido da SUA voz por cima.
 // Sempre visível no modo IA; o rastro aparece quando o mic está ligado.
 let laneRange = null;
+let laneModes = []; // por frase: "melody" (notas) ou "rhythm" (rap falado)
 
 // janelas das frases da letra em tempo do ÁUDIO — a melodia só aparece dentro
 // delas (o que o pyin detecta fora é sobra da separação: violão, reverb…)
@@ -484,42 +485,62 @@ function drawLane() {
   const Y = (m) => h - ((m - laneRange[0]) / (laneRange[1] - laneRange[0])) * (h - 10) - 5;
   const { hop, midi } = score.ref;
 
-  // notas da melodia original — SÓ dentro das frases da letra (fora é sobra da
-  // separação, não canto); as notas da frase ATUAL ficam em âmbar
-  const wins = getLaneWindows();
-  const nowWin = wins ? wins.find((w) => now >= w[0] && now <= w[1]) : null;
-  const k0 = Math.max(0, Math.floor(t0 / hop));
-  const k1 = Math.min(midi.length - 1, Math.ceil(t1 / hop));
-  let segStart = null, segSum = 0, segN = 0, prev = null, wi = 0;
-  const flush = (endK) => {
-    if (segStart !== null && segN >= 2) {
-      const m = segSum / segN;
-      const midT = ((segStart + endK) / 2) * hop;
-      const x1 = X(segStart * hop), x2 = X(endK * hop);
-      const inNow = nowWin && midT >= nowWin[0] && midT <= nowWin[1];
-      ctx.fillStyle = inNow ? "rgba(255,179,71,.95)"
-        : endK * hop < now ? "rgba(93,79,116,.5)" : "rgba(157,143,176,.85)";
-      ctx.beginPath();
-      ctx.roundRect(x1, Y(m) - 3.5, Math.max(x2 - x1, 3), 7, 3.5);
-      ctx.fill();
+  // por frase da letra: CANTO vira notas na altura certa; RAP FALADO (sem
+  // afinação detectável) vira blocos de ritmo na linha central — o flow.
+  // Fora de frase não desenha nada (sobra da separação não é canto).
+  const wins = getLaneWindows() || [[0, getDuration() || t1]];
+  const energy = score.ref.energy;
+  const nowWinIdx = wins.findIndex((w) => now >= w[0] && now <= w[1]);
+  const colorFor = (endT, inNow) => inNow ? "rgba(255,179,71,.95)"
+    : endT < now ? "rgba(93,79,116,.5)" : "rgba(157,143,176,.85)";
+
+  const windowMode = (i) => {
+    if (!energy) return "melody";
+    if (laneModes[i] === undefined) {
+      const [a, b] = wins[i];
+      const ka = Math.max(0, Math.floor(a / hop));
+      const kb = Math.min(midi.length, Math.ceil(b / hop));
+      let pitched = 0;
+      for (let k = ka; k < kb; k++) if (midi[k] !== null) pitched++;
+      laneModes[i] = pitched / Math.max(1, kb - ka) >= 0.25 ? "melody" : "rhythm";
     }
-    segStart = null; segSum = 0; segN = 0;
+    return laneModes[i];
   };
-  for (let k = k0; k <= k1; k++) {
-    let m = midi[k];
-    if (m !== null && wins) {
-      const tA = k * hop;
-      while (wi < wins.length && wins[wi][1] < tA) wi++;
-      if (!(wi < wins.length && tA >= wins[wi][0])) m = null; // fora de frase: oculta
+
+  for (let i = 0; i < wins.length; i++) {
+    const [a, b] = wins[i];
+    if (b < t0 || a > t1) continue;
+    const inNow = i === nowWinIdx;
+    const mode = windowMode(i);
+    const arr = mode === "melody" ? midi : energy;
+    const isOn = mode === "melody" ? (v) => v !== null : (v) => v === 1;
+    const k0 = Math.max(0, Math.floor(Math.max(a, t0) / hop));
+    const k1 = Math.min(arr.length - 1, Math.ceil(Math.min(b, t1) / hop));
+    let segStart = null, segSum = 0, segN = 0, prevM = null;
+    const flush = (endK) => {
+      if (segStart !== null && segN >= 2) {
+        const x1 = X(segStart * hop), x2 = X(endK * hop);
+        const yy = mode === "melody" ? Y(segSum / segN) : h / 2;
+        ctx.fillStyle = colorFor(endK * hop, inNow);
+        ctx.beginPath();
+        ctx.roundRect(x1, yy - 3.5, Math.max(x2 - x1, 3), 7, 3.5);
+        ctx.fill();
+      }
+      segStart = null; segSum = 0; segN = 0;
+    };
+    for (let k = k0; k <= k1; k++) {
+      const v = arr[k];
+      const on = isOn(v);
+      if (!on || (mode === "melody" && prevM !== null && Math.abs(v - prevM) > 0.7)) flush(k);
+      if (on) {
+        if (segStart === null) segStart = k;
+        if (mode === "melody") segSum += v;
+        segN++;
+      }
+      prevM = mode === "melody" && on ? v : null;
     }
-    if (m === null || (prev !== null && Math.abs(m - prev) > 0.7)) flush(k);
-    if (m !== null) {
-      if (segStart === null) segStart = k;
-      segSum += m; segN++;
-    }
-    prev = m;
+    flush(k1);
   }
-  flush(k1);
 
   // linha do "agora"
   ctx.strokeStyle = "rgba(255,179,71,.75)";
@@ -984,6 +1005,7 @@ async function openPlayer(song) {
   resetScore();
   score.ref = null;
   laneRange = null;
+  laneModes = [];
   $("pitch-lane").hidden = true;
   if (useStems) {
     fetch(`/api/pitch/${song.id}`)

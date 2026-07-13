@@ -47,8 +47,9 @@ interrompidos por restart voltam pra fila no boot).
 1. **separating** — audio-separator, modelo `UVR-MDX-NET-Voc_FT.onnx`
    (onnxruntime CPU). ~1,7× a duração da música neste i7. Gera WAVs.
 2. **analyzing** — melodia de referência do stem de voz: `librosa.pyin`
-   (fmin 65, fmax 1000, sr 16k, hop 512) → `pitch.json {hop, midi[]}` (null =
-   sem canto). É o gabarito da pontuação E a máscara de canto do alinhamento.
+   (fmin 65, fmax 1000, sr 16k, hop 512) → `pitch.json {hop, midi[], energy[]}`
+   (midi null = sem canto afinado; energy 0/1 = presença de voz, pega rap
+   FALADO). Gabarito da pontuação + máscara do alinhamento + modo do pitch lane.
 3. **aligning** — cadeia de fallbacks, do melhor pro pior:
    a. **Forced alignment (stable-ts/Whisper "small", CPU)** — `model.align()`
       com `original_split=True` acha início E fim de cada linha CANTADA.
@@ -120,6 +121,14 @@ interrompidos por restart voltam pra fila no boot).
   são unlocked (transientes toleráveis).
 - Screenshot/aba do preview pode travar com blur pesado — os holofotes usam
   radial-gradient, não `filter: blur()`. Manter assim.
+- **Pente fino**: `.venv\Scripts\python.exe server\audit.py [id]` audita o
+  alinhamento por frase (canto%, energia%, GHOST/STRETCH/FORA/OVERLAP). Rodar
+  depois de mexer no alinhamento.
+- Whisper se perde em refrão repetido → `reconcile_with_lrc` usa o LRC humano
+  (origSynced) como trilho; letra de versão mais longa que o áudio (ao vivo) tem
+  as frases além do fim descartadas (droppedBeyondAudio).
+- Pitch lane decide POR FRASE: ≥25% de frames afinados = notas (melody); menos
+  = blocos de energia na linha central (rhythm, rap falado).
 - yt-dlp avisa "No supported JavaScript runtime" — funciona mesmo assim; se o
   YouTube quebrar formatos, instalar deno ou atualizar yt-dlp.
 

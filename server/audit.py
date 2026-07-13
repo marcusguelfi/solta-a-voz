@@ -1,0 +1,114 @@
+"""Pente fino do alinhamento letra-cantoria.
+
+Uso:  .venv\\Scripts\\python.exe server\\audit.py [id-da-musica]
+Sem argumento, audita a biblioteca inteira.
+
+Pra cada frase alinhada mede:
+- canto%   — frames com voz AFINADA (pyin) dentro da janela (bom pra melodia)
+- energia% — frames com ENERGIA vocal dentro da janela (pega rap falado)
+e aponta: GHOST (frase sem energia = não existe nessa gravação), STRETCH
+(janela esticada demais), FORA (além do fim do áudio), OVERLAP (invade a próxima).
+"""
+import json
+import statistics
+import sys
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parent.parent
+STEMS = BASE / "data" / "stems"
+
+MAX_WINDOW = 12.0      # frase cantável raramente passa disso
+ENERGY_MIN = 0.15      # fração da janela com energia pra não ser fantasma
+
+
+def energy_envelope(vocals_path: Path):
+    import librosa
+    import numpy as np
+
+    y, sr = librosa.load(str(vocals_path), sr=16000, mono=True)
+    hop = 512
+    rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop)[0]
+    thr = float(np.percentile(rms, 95)) * 0.15
+    return (rms > thr).astype(float), hop / sr
+
+
+def audit_song(sid: str, entry: dict) -> dict | None:
+    lines = (entry.get("lyrics") or {}).get("lines")
+    duration = entry.get("duration") or 0
+    title = f"{entry.get('artist')} - {entry.get('title')}"
+    if not lines:
+        print(f"\n== {title}: sem alinhamento frase a frase (método "
+              f"{(entry.get('lyrics') or {}).get('alignMethod') or 'offset global'}) — pulando")
+        return None
+
+    pitch_file = STEMS / sid / "pitch.json"
+    vocals = STEMS / sid / "vocals.mp3"
+    if not pitch_file.exists() or not vocals.exists():
+        print(f"\n== {title}: sem stems/pitch — pulando")
+        return None
+    pitch = json.loads(pitch_file.read_text(encoding="utf-8"))
+    p_hop, midi = pitch["hop"], pitch["midi"]
+    active, e_hop = energy_envelope(vocals)
+
+    def frac(arr, hop, a, b):
+        i0, i1 = max(0, int(a / hop)), min(len(arr), int(b / hop))
+        if i1 <= i0:
+            return 0.0
+        seg = arr[i0:i1]
+        if isinstance(seg, list):
+            return sum(1 for v in seg if v is not None) / len(seg)
+        return float(seg.mean())
+
+    print(f"\n== {title}  ({len(lines)} frases, áudio {duration}s)")
+    flags_count = {"GHOST": 0, "STRETCH": 0, "FORA": 0, "OVERLAP": 0}
+    windows, energies = [], []
+    for i, ln in enumerate(lines):
+        t, end = ln["t"], ln.get("end") or (lines[i + 1]["t"] if i + 1 < len(lines) else ln["t"] + 5)
+        win = end - t
+        sung = frac(midi, p_hop, t, end)
+        energ = frac(active, e_hop, t, end)
+        windows.append(win)
+        energies.append(energ)
+        flags = []
+        if duration and t >= duration - 1:
+            flags.append("FORA")
+        elif energ < ENERGY_MIN:
+            flags.append("GHOST")
+        if win > MAX_WINDOW:
+            flags.append("STRETCH")
+        if i + 1 < len(lines) and end > lines[i + 1]["t"] + 0.05:
+            flags.append("OVERLAP")
+        for f in flags:
+            flags_count[f] += 1
+        if flags:
+            print(f"  [{' '.join(flags):>12}] {t:7.2f}->{end:7.2f} "
+                  f"canto {sung*100:3.0f}% energia {energ*100:3.0f}%  {ln['text'][:46]}")
+    ok = len(lines) - sum(1 for i in range(len(lines))
+                          if energies[i] < ENERGY_MIN or windows[i] > MAX_WINDOW)
+    print(f"  -> {ok}/{len(lines)} frases saudáveis | energia mediana "
+          f"{statistics.median(energies)*100:.0f}% | janela mediana {statistics.median(windows):.1f}s "
+          f"| flags: {', '.join(f'{k}={v}' for k, v in flags_count.items() if v) or 'nenhuma'}")
+    return {"sid": sid, "ok": ok, "total": len(lines), "flags": flags_count}
+
+
+def main():
+    lib = json.loads((BASE / "data" / "library.json").read_text(encoding="utf-8"))
+    targets = [sys.argv[1]] if len(sys.argv) > 1 else list(lib.keys())
+    results = []
+    for sid in targets:
+        if sid not in lib:
+            print(f"id {sid} não existe na biblioteca")
+            continue
+        r = audit_song(sid, lib[sid])
+        if r:
+            results.append(r)
+    if len(results) > 1:
+        print("\n===== RESUMO =====")
+        for r in results:
+            e = lib[r["sid"]]
+            pct = round(100 * r["ok"] / r["total"])
+            print(f"  {pct:3d}% saudável  {e.get('artist')} - {e.get('title')}")
+
+
+if __name__ == "__main__":
+    main()
