@@ -110,11 +110,24 @@ JUNK_TITLE = re.compile(
     r"visualizer|hd|4k|mv|remaster|ao vivo)[^)\]]*[)\]]",
     re.IGNORECASE,
 )
+MENTION = re.compile(r"@\S+")  # títulos do YouTube adoram "@CanalConvidado"
+
+
+def clean_search_title(title: str) -> str:
+    """Versão agressiva pra BUSCA de letra: sem @menções, parênteses e feat."""
+    t = MENTION.sub("", title or "")
+    t = re.sub(r"[(\[][^)\]]*[)\]]", "", t)
+    t = re.sub(r"\b(feat|ft|part)\.?\s.*$", "", t, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", t).strip(" -–—|.")
+
+
+def first_artist(artist: str) -> str:
+    return re.split(r"\s*[,;/&]\s*", artist or "")[0].strip()
 
 
 def parse_video_title(title: str, uploader: str | None) -> tuple[str, str]:
     """Extrai (artista, faixa) de um título tipo 'Artista - Música (Clipe Oficial)'."""
-    clean = JUNK_TITLE.sub("", title or "")
+    clean = MENTION.sub("", JUNK_TITLE.sub("", title or ""))
     clean = re.sub(r"\s{2,}", " ", clean).strip(" -–—|")
     parts = re.split(r"\s*[-–—|]\s*", clean, maxsplit=1)
     if len(parts) == 2 and parts[0] and parts[1]:
@@ -226,32 +239,46 @@ def _lrclib_request(path: str, params: dict):
 
 
 def fetch_lyrics(artist: str, title: str, album: str, duration: float) -> dict | None:
-    # 1) busca exata (artista + faixa + duração)
-    if artist and title and duration:
+    clean_t = clean_search_title(title)
+    lead = first_artist(artist)
+
+    # 1) busca exata (artista + faixa + duração), com e sem limpeza
+    seen_get = set()
+    for a, t in ((artist, title), (lead, clean_t)):
+        if not (a and t and duration) or (a, t) in seen_get:
+            continue
+        seen_get.add((a, t))
         try:
             hit = _lrclib_request("get", {
-                "artist_name": artist, "track_name": title,
+                "artist_name": a, "track_name": t,
                 "album_name": album, "duration": int(duration)})
             if hit and (hit.get("syncedLyrics") or hit.get("plainLyrics")):
                 return hit
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
             pass
-    # 2) fallback: busca livre, escolhe melhor por duração e presença de sync
-    try:
-        results = _lrclib_request("search", {"q": f"{artist} {title}".strip()})
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-        return None
-    if not results:
-        return None
 
     def rank(r):
         dur_diff = abs((r.get("duration") or 0) - duration) if duration else 999
         return (0 if r.get("syncedLyrics") else 1, dur_diff)
 
-    best = sorted(results, key=rank)[0]
-    if duration and abs((best.get("duration") or 0) - duration) > 20 and not best.get("syncedLyrics"):
-        return None
-    return best
+    # 2) busca livre em escada: completa -> artista principal + título limpo -> só título
+    seen_q = set()
+    for q in (f"{artist} {title}", f"{lead} {clean_t}", clean_t):
+        q = q.strip()
+        if not q or q in seen_q:
+            continue
+        seen_q.add(q)
+        try:
+            results = _lrclib_request("search", {"q": q})
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+            continue
+        if not results:
+            continue
+        best = sorted(results, key=rank)[0]
+        if duration and abs((best.get("duration") or 0) - duration) > 20 and not best.get("syncedLyrics"):
+            continue
+        return best
+    return None
 
 
 def search_and_store_lyrics(sid: str, artist: str | None = None,
@@ -392,19 +419,23 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
         matched = cached.get("matched") or {}
         candidates.append({"syncedLyrics": cached["synced"], "plainLyrics": cached.get("plain"),
                            "artistName": matched.get("artist"), "trackName": matched.get("title")})
-    try:
-        results = _lrclib_request(
-            "search", {"q": f"{entry.get('artist') or ''} {entry.get('title') or ''}".strip()})
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-        results = []
+    e_artist, e_title = entry.get("artist") or "", entry.get("title") or ""
     seen = {c["syncedLyrics"] for c in candidates}
-    for r in results or []:
-        s = r.get("syncedLyrics")
-        if s and s not in seen:
-            seen.add(s)
-            candidates.append(r)
-        if len(candidates) >= 8:
-            break
+    for q in (f"{e_artist} {e_title}".strip(),
+              f"{first_artist(e_artist)} {clean_search_title(e_title)}".strip()):
+        if not q or len(candidates) >= 8:
+            continue
+        try:
+            results = _lrclib_request("search", {"q": q})
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+            continue
+        for r in results or []:
+            s = r.get("syncedLyrics")
+            if s and s not in seen:
+                seen.add(s)
+                candidates.append(r)
+            if len(candidates) >= 8:
+                break
 
     best = None
     for cand in candidates:
@@ -714,7 +745,9 @@ def add_from_link(body: LinkBody):
     if not files:
         raise HTTPException(502, "Download terminou sem arquivo de áudio")
     dest = files[0]
-    artist = info.get("artist") or ", ".join(info.get("artists") or []) or None
+    # yt-dlp às vezes lista TODOS os compositores — 2 nomes bastam pra exibir
+    raw_artist = info.get("artist") or ", ".join(info.get("artists") or []) or ""
+    artist = ", ".join(re.split(r"\s*[,;]\s*", raw_artist)[:2]) or None
     title = info.get("track")
     if not (artist and title):
         p_artist, p_title = parse_video_title(info.get("title", ""), info.get("uploader"))
