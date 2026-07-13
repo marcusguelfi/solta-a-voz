@@ -126,10 +126,27 @@ interrompidos por restart voltam pra fila no boot).
 ## Roadmap (ideias já discutidas)
 
 - GPU: onnxruntime-directml (GTX 1060) pra separar em segundos; roformer viável.
-- Barra de progresso real do preparo no card (estimativa por estágio).
-- Fila de festa (próximas músicas, vários cantores, placar da noite).
-- Gráfico de tom estilo "pitch lane" (notas do cantor original + sua voz).
+- Pitch lane: iterar (altura, nome das notas, espessura das barras).
 - Duetos (duas linhas de melodia), modo treino (loop de trecho).
+
+### Multiplayer (planejado em 2026-07-12, ordem de ataque 1→2→3)
+
+1. **Duelo local (revezamento)** — perfis de jogador (nome+emoji), modos:
+   (a) um canta a música inteira de cada vez, placar comparativo no final;
+   (b) "mic passa-passa": frases alternadas com dono por frase (usar as janelas
+   do forced alignment). Mover recordes do localStorage pro library.json.
+   Sem infra nova. ~1 sessão.
+2. **Modo festa LAN** — celular como CONTROLE via QR code (fila de músicas,
+   votação, placar da noite); canto continua no mic do PC. Requer: uvicorn em
+   0.0.0.0 + regra de firewall + WebSocket do FastAPI pra fila/placar.
+   ⚠️ mic no celular NÃO funciona em HTTP de rede local (getUserMedia exige
+   secure context; localhost é exceção, IP LAN não) — precisaria mkcert.
+   ~2-3 sessões.
+3. **Duelo online** — cada jogador roda o app local; mini-relay WebSocket na
+   nuvem (~100 linhas, host grátis) sincroniza sala: código de convite, os dois
+   adicionam a mesma música por link (só JSON de placar trafega, nunca áudio),
+   ready-check + contagem, placar ao vivo por frase. Latência irrelevante
+   (áudio local). ~3-4 sessões.
 
 ## Convenções
 
