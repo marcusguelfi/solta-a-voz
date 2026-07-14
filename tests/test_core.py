@@ -121,6 +121,35 @@ def test_reconcile_corrige_linha_fugitiva():
         assert lines[i]["end"] <= lines[i + 1]["t"]
 
 
+def test_clamp_ends_to_voice_corta_instrumental(monkeypatch):
+    # frase cantada em 0-3s, 12s de instrumental, voz de OUTRA parte volta em 15s
+    hop = 0.032
+    n = int(20 / hop)
+    energy = [0] * n
+    for k in range(0, int(3 / hop)):
+        energy[k] = 1
+    for k in range(int(15 / hop), int(16 / hop)):
+        energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+
+    lines = [{"t": 0.0, "end": 16.0, "text": "frase esticada"},
+             {"t": 16.5, "end": 18.0, "text": "proxima"}]
+    trimmed = main.clamp_ends_to_voice("x", lines)
+    assert trimmed == 1
+    assert 2.8 < lines[0]["end"] < 3.8   # termina no fim do 1º trecho cantado
+    assert lines[1]["end"] == 18.0       # não mexe nas outras
+
+
+def test_clamp_ends_to_voice_preserva_nota_longa(monkeypatch):
+    # janela longa mas cheia de voz (nota sustentada) — não corta nada
+    hop = 0.032
+    n = int(14 / hop)
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": [1] * n})
+    lines = [{"t": 0.0, "end": 13.0, "text": "laaaaa"}]
+    assert main.clamp_ends_to_voice("x", lines) == 0
+    assert lines[0]["end"] == 13.0
+
+
 def test_detect_vocal_onset(tmp_path):
     import numpy as np
     import soundfile as sf

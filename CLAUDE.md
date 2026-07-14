@@ -60,6 +60,11 @@ interrompidos por restart voltam pra fila no boot).
       de OUTRA versão da música!) contra a máscara de canto do pyin via
       cross-correlation (±35s); escolhe a de maior cobertura → `autoOffset` global.
    c. **Onset** — primeiro trecho com energia vocal vs 1ª linha do LRC.
+   Pós-processamento das lines: `reconcile_with_lrc` (refrão repetido),
+   descarte de frases além do fim do áudio, e **`clamp_ends_to_voice`** — corta
+   o instrumental preso no FIM de cada frase (termina no fim do 1º trecho
+   contínuo de canto, tolera respiro de 2s). Sem isso a frase fica acesa durante
+   o interlúdio (o "fora do tempo" do Depeche Mode).
 4. WAVs viram mp3 192k (ffmpeg) e são apagados.
 
 ### Player (app.js)
@@ -122,9 +127,13 @@ interrompidos por restart voltam pra fila no boot).
   são unlocked (transientes toleráveis).
 - Screenshot/aba do preview pode travar com blur pesado — os holofotes usam
   radial-gradient, não `filter: blur()`. Manter assim.
-- **Pente fino**: `.venv\Scripts\python.exe server\audit.py [id]` audita o
-  alinhamento por frase (canto%, energia%, GHOST/STRETCH/FORA/OVERLAP). Rodar
-  depois de mexer no alinhamento.
+- **Pente fino**: `.venv\Scripts\python.exe server\audit.py [id] [--web]` audita
+  o alinhamento por frase. O sinal de saúde é ENERGIA vocal, não duração (o pyin
+  capta o synth do instrumental, então `canto%` engana). Flags: GHOST (sem voz),
+  FROUXO (instrumental preso na frase = problema), LONGA (janela grande mas cheia
+  de voz = legítima), CURTA (>9 palavras/s = cram), FORA, OVERLAP (cosmético),
+  DESCOBERTO (canto sem frase na letra). `--web` cruza com lyrics.ovh. Reporta
+  também o que o pipeline fez (reconcile/tails/dropped/1ª frase vs onset).
 - Whisper se perde em refrão repetido → `reconcile_with_lrc` usa o LRC humano
   (origSynced) como trilho; letra de versão mais longa que o áudio (ao vivo) tem
   as frases além do fim descartadas (droppedBeyondAudio).

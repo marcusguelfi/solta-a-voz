@@ -606,6 +606,47 @@ def reconcile_with_lrc(lines: list[dict], lrc: list[tuple[float, str]]) -> dict:
     return {"fixed": fixed, "offset": round(offset, 2)}
 
 
+def clamp_ends_to_voice(sid: str, lines: list[dict]) -> int:
+    """Corta silêncio/instrumental no FIM de cada frase. O Whisper às vezes
+    estica o 'end' de uma linha até a próxima entrada de voz (típico na última
+    frase de um verso, antes de um interlúdio) — a linha fica acesa durante o
+    instrumental inteiro. Usa a energia vocal (pitch.json) pra terminar a frase
+    onde a voz de fato para. Só encurta; nunca mexe no início nem estica."""
+    pitch = load_pitch(sid)
+    energy = (pitch or {}).get("energy")
+    if not energy:
+        return 0
+    hop = pitch["hop"]
+    n = len(energy)
+    gap_limit = max(1, int(2.0 / hop))  # silêncio > 2s = a frase acabou
+    trimmed = 0
+    for i, ln in enumerate(lines):
+        nxt = lines[i + 1]["t"] if i + 1 < len(lines) else ln["end"] + 5
+        lo = max(0, int(ln["t"] / hop))
+        hi = min(n, int(min(ln["end"], nxt) / hop))
+        # primeira voz na janela; se a janela é toda instrumental, não mexe
+        k = lo
+        while k < hi and not energy[k]:
+            k += 1
+        if k >= hi:
+            continue
+        # fim do PRIMEIRO trecho contínuo de canto (tolera respiros curtos);
+        # voz que volta depois de um silêncio longo já é outra parte
+        last_voiced, silence = k, 0
+        k += 1
+        while k < hi:
+            if energy[k]:
+                last_voiced, silence = k, 0
+            elif (silence := silence + 1) > gap_limit:
+                break
+            k += 1
+        new_end = round(last_voiced * hop + 0.3, 2)
+        if new_end < ln["end"] - 0.5 and new_end > ln["t"] + 0.6:
+            ln["end"] = new_end
+            trimmed += 1
+    return trimmed
+
+
 def align_lyrics_to_vocals(sid: str) -> dict | None:
     """Re-cronometra a letra pela cantoria real. Funciona até com letra sem sync."""
     entry = _get_entry(sid)
@@ -638,6 +679,10 @@ def align_lyrics_to_vocals(sid: str) -> dict | None:
                 reconciled = {}
             reconciled["droppedBeyondAudio"] = len(lines) - len(kept)
             lines = kept
+    # corta o instrumental preso no fim das frases (frase segue a cantoria)
+    tails = clamp_ends_to_voice(sid, lines)
+    if tails:
+        reconciled = {**(reconciled or {}), "trimmedTails": tails}
     new_synced = "\n".join(
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
