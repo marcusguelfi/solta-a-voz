@@ -1,11 +1,22 @@
 /* ============ SOLTA A VOZ — player de karaokê ============
- * Dois modos de áudio:
- *  - "stems": música preparada por IA — voz e instrumental são faixas separadas
- *    (AudioBufferSource, sync perfeito). Slider Voz = volume real da voz (padrão 0%).
- *  - "centercut": modo rápido pra música ainda não preparada — atenua o canal
- *    central (mid/side) em tempo real.
- * Letra: LRC do LRCLIB + offset automático (início real do canto detectado no
- * stem de voz pelo servidor) + ajuste manual opcional.
+ *
+ * Áudio (motor "engine"):
+ *  - "stems" (modo principal): voz e instrumental são faixas separadas pela IA,
+ *    tocadas como AudioBufferSource em sync de sample. Slider Voz = volume real
+ *    da voz do cantor original (padrão 0% = karaokê puro).
+ *  - "centercut": SÓ fallback de emergência quando os stems falham no load —
+ *    atenua o canal central (mid/side) do áudio original em tempo real.
+ *    (música não preparada nem abre o player; ver isReady)
+ *
+ * Letra: lyrics.lines do servidor traz início E fim de cada frase CANTADA
+ * (forced alignment); a linha acende/apaga seguindo a cantoria, com LYRIC_LEAD
+ * de antecipação e ajuste manual opcional (menu ☰).
+ *
+ * Pontuação: mic -> pitch por autocorrelação -> comparação com pitch.json
+ * (melodia do cantor original), tolerante a oitava. Nota 0-100 por frase.
+ *
+ * Pitch lane: canvas com as notas/ritmo do cantor rolando + rastro da sua voz.
+ * Fila da festa: ids em localStorage, auto-avanço no fim da música.
  */
 
 const $ = (id) => document.getElementById(id);
@@ -60,11 +71,11 @@ function paintRange(input) {
 
 // ---------------------------------------------------------------- motor de áudio
 const engine = {
-  ctx: null, limiter: null, mode: null,
-  // stems
+  ctx: null, limiter: null, mode: null, // "stems" | "centercut"
+  // stems: relógio = ctx.currentTime - startedAt + startOffset (ver getTime)
   buffers: null, sources: [], vocalG: null, instG: null,
-  startedAt: 0, startOffset: 0, playing: false, stopping: false,
-  // centercut
+  startedAt: 0, startOffset: 0, playing: false,
+  // centercut (fallback): grafo mid/side pendurado no <audio>
   cc: null,
 };
 
@@ -227,9 +238,8 @@ function applyMixer() {
 // (extraída do stem de voz no servidor). Nota por frase, oitava não importa.
 const score = {
   enabled: false, micStream: null, analyser: null, buf: null,
-  ref: null,            // {hop, midi[]} — melodia de referência
+  ref: null,            // pitch.json: {hop, midi[] (null=sem nota), energy[] 0/1}
   samples: [],          // amostras do mic: {t (tempo do áudio), midi}
-  lastSample: null,
   nextToScore: 0, // próxima linha da letra a ser pontuada
   total: 0, maxPossible: 0, lineResults: [],
 };
@@ -302,7 +312,6 @@ function disableMic() {
 
 function resetScore() {
   score.samples = [];
-  score.lastSample = null;
   score.nextToScore = 0;
   score.total = 0;
   score.maxPossible = 0;
@@ -821,6 +830,8 @@ $("res-next").onclick = () => {
   if (!playNextInQueue()) closePlayer();
 };
 
+// busca a letra logo após adicionar: o badge de dificuldade aparece no card
+// em segundos, sem esperar o pipeline chegar na etapa de alinhamento
 async function warmLyrics(song) {
   try { await api(`/api/lyrics/${song.id}`); } catch {}
   loadSongs().catch(() => {});
@@ -1010,9 +1021,7 @@ function tick() {
     score.analyser.getFloatTimeDomainData(score.buf);
     const f = detectPitch(score.buf, engine.ctx.sampleRate);
     if (f) {
-      const sample = { t: getTime(), midi: 69 + 12 * Math.log2(f / 440) };
-      score.samples.push(sample);
-      score.lastSample = sample;
+      score.samples.push({ t: getTime(), midi: 69 + 12 * Math.log2(f / 440) });
       if (score.samples.length > 3000) score.samples.splice(0, 1500);
     }
   }
@@ -1099,6 +1108,8 @@ async function openPlayer(song) {
   ensureCtx();
   engine.ctx.resume();
 
+  // o guard isReady acima garante stems; o ramo centercut abaixo sobrevive
+  // apenas como cinto de segurança (e como fallback no catch do load)
   const useStems = song.status === "ready" && song.stems;
   engine.mode = useStems ? "stems" : "centercut";
   loadMixerFor(engine.mode);

@@ -1,8 +1,16 @@
 """Solta a Voz — servidor do karaokê caseiro.
 
-Upload ou link -> biblioteca com metadata -> pipeline de preparo (separa voz por IA,
-alinha a letra pelo início real do canto) -> player com letra sincronizada.
-Enquanto a música não foi processada, o player usa center-cut como modo rápido.
+Fluxo: upload/link -> biblioteca com metadata -> pipeline de preparo em background
+(separa voz por IA, extrai melodia de referência, alinha a letra pela CANTORIA via
+forced alignment) -> player com letra sincronizada, pitch lane e pontuação por frase.
+
+A música só fica jogável quando o preparo termina (status "ready" + stems). O
+pipeline roda num worker de thread única servido por uma queue.Queue; jobs
+interrompidos por restart voltam pra fila no boot. Toda escrita em library.json
+passa por _update_entry/_add_entry sob _lock; leituras são unlocked.
+
+Arquivos por música: data/media/{id}.ext (original), data/stems/{id}/vocals.mp3 +
+instrumental.mp3 + pitch.json. library.json guarda metadata + cache da letra + status.
 """
 import json
 import logging
@@ -183,6 +191,8 @@ LRC_TIME = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
 
 
 def parse_lrc(synced: str) -> list[tuple[float, str]]:
+    """LRC -> lista ordenada de (segundos, texto). Uma linha pode ter vários
+    timestamps (refrão) — cada um vira uma entrada."""
     lines = []
     for raw in (synced or "").splitlines():
         times = LRC_TIME.findall(raw)
@@ -676,6 +686,14 @@ def _run_ffmpeg_mp3(src: Path, dst: Path) -> None:
 
 
 def process_song(sid: str) -> None:
+    """Pipeline completo de uma música (roda no worker). Etapas, com o status
+    que cada uma publica pra barra de progresso:
+      separating -> separa voz/instrumental (MDX-Net)
+      analyzing  -> melodia + energia de referência (pitch.json)
+      aligning   -> letra do LRCLIB (melhor versão por correlação) e depois
+                    forced alignment pela cantoria; center-cut/onset são fallback
+      ready      -> converte stems pra mp3, limpa WAVs, libera a música
+    """
     entry = _get_entry(sid)
     src = MEDIA / entry["file"]
     if not src.exists():

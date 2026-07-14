@@ -330,7 +330,8 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 
 /* controles */
 .controls { padding: 14px 28px 22px; display: flex; flex-direction: column; gap: 12px; }
-.transport { display: flex; align-items: center; gap: 14px; }
+/* transporte: play, tempo, barra de busca e os sliders Voz/Instrumental na mesma linha */
+.transport { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .play-btn {
   width: 54px; height: 54px; border-radius: 50%; border: none; cursor: pointer;
   background: var(--grad); color: #1b0510; font-size: 1.3rem; flex-shrink: 0;
@@ -356,7 +357,6 @@ input[type="range"]::-moz-range-thumb {
 }
 .seek { flex: 1; }
 
-.transport { flex-wrap: wrap; }
 .slider-group { display: flex; flex-direction: column; gap: 2px; min-width: 160px; margin-left: 10px; }
 .slider-label { font-size: .82rem; color: var(--ink-dim); display: flex; justify-content: space-between; }
 .slider-label b { color: var(--ink); }
@@ -452,7 +452,6 @@ input[type="range"]::-moz-range-thumb {
 
 @media (max-width: 640px) {
   main { padding: 34px 18px 70px; }
-  .mixer { gap: 14px; }
   .player-top { padding: 14px 16px; }
   .controls { padding: 10px 16px 16px; }
 }

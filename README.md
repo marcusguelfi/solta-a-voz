@@ -9,7 +9,8 @@ alinha a letra pelo início real do canto. Depois é só entrar e cantar.
 
 1. **Download/upload** → metadata via mutagen ou yt-dlp
 2. **Separação por IA** — modelo MDX-Net (UVR-MDX-NET-Voc_FT) via onnxruntime,
-   roda em CPU (~2-5 min por música); gera `vocals.mp3` + `instrumental.mp3`
+   roda em CPU (~1,7× a duração da música num i7-7700); gera
+   `vocals.mp3` + `instrumental.mp3`
 3. **Letra sincronizada** — API gratuita do [LRCLIB](https://lrclib.net/docs)
 4. **Melodia de referência** — pitch do cantor original extraído do stem de voz
    (librosa/pyin) → base da pontuação
@@ -23,13 +24,18 @@ alinha a letra pelo início real do canto. Depois é só entrar e cantar.
 
 ## Player
 
-- **Modo IA** (música preparada): voz e instrumental são faixas separadas
-  tocadas em sync perfeito — slider **Voz** em 0% = karaokê de verdade;
-  sobe se quiser voz-guia. Slider **Instrumental** até 130% com limiter.
-- **Modo rápido** (música recém-adicionada, ainda processando): center-cut
-  (cancelamento do canal central) em tempo real — dá pra cantar enquanto a IA trabalha.
-- Letra com destaque progressivo, contagem regressiva (● ● ●) antes da primeira
-  linha e em pausas longas, ajuste fino ±0,5s se precisar (salvo por música).
+- Voz e instrumental são faixas separadas tocadas em sync perfeito — slider
+  **Voz** em 0% = karaokê de verdade; sobe se quiser voz-guia. Slider
+  **Instrumental** até 130% com limiter anti-estouro. (A música só abre quando
+  o preparo termina; center-cut do original existe apenas como fallback se as
+  faixas separadas falharem no carregamento.)
+- Letra com destaque progressivo que **segue a cantoria**: a linha acende e
+  apaga conforme a frase é cantada, com contagem regressiva (● ● ●) na intro e
+  em pausas instrumentais. Ajuste fino ±0,5s no menu ☰ (salvo por música).
+- **Pitch lane** — gráfico horizontal abaixo dos controles mostrando as notas do
+  cantor original rolando (frase cantada = notas na altura certa; rap falado =
+  blocos de ritmo). Com o mic ligado, sua voz vira um rastro colorido por cima
+  (verde afinado, âmbar quase, rosa fora).
 
 ## Pontuação 🎤 (igual karaokê de verdade)
 
@@ -41,13 +47,17 @@ fones dão pontuação mais precisa). A cada frase da letra:
   mulher pontua normal) e janela de ±350ms pra latência do mic;
 - a frase fecha com nota 0-100 e um pop na tela (PERFEITO! / Mandou bem! /
   Boa! / Quase… / Ops…); frases sem canto = "Cadê a voz? 👀";
-- medidor de **tom** ao vivo mostra se você está afinado (verde), quase (âmbar)
-  ou fora (rosa);
 - no fim: nota geral S/A/B/C/D/E, total de pontos e recorde por música
   (salvo no navegador).
 
-Pontuação exige música preparada (modo IA) — é a melodia extraída da voz
-original que serve de gabarito.
+Pontuação usa a melodia extraída da voz original (`pitch.json`) como gabarito.
+
+## Fila da festa 🎶
+
+No hover do card, o botão **➕** joga a música numa fila. A barra de fila no topo
+da biblioteca deixa reordenar/remover e "▶ tocar fila". Quando uma música acaba,
+a próxima entra sozinha; com o mic ligado, a tela de resultado ganha um botão
+**⏭ próxima da fila**. A fila fica salva no navegador.
 
 ## Rodando
 
@@ -71,14 +81,33 @@ Whisper) baixam sozinhos no primeiro preparo e ficam em `data\models`.
 ## Estrutura
 
 ```
-server/main.py    — API + worker de preparo (fila em thread)
+server/main.py    — API + worker de preparo (fila em thread única)
+server/audit.py   — pente fino do alinhamento (ver abaixo)
 static/           — frontend (HTML/CSS/JS puro, Web Audio API)
+tests/test_core.py— testes das funções puras do pipeline
 data/library.json — biblioteca (metadata + cache de letra + status)
-data/media/       — arquivos originais
-data/stems/{id}/  — vocals.mp3 + instrumental.mp3 por música
-tools/ffmpeg/     — ffmpeg portátil
+data/media/       — arquivos originais ({id}.ext)
+data/stems/{id}/  — vocals.mp3, instrumental.mp3, pitch.json por música
+tools/ffmpeg/     — ffmpeg portátil (fora do git)
 ```
 
 ## Atalhos no player
 
 - **Espaço** play/pause · **Esc** volta ao repertório · **← →** pula 5s
+
+## Manutenção
+
+```bat
+:: testes das funções puras (metadata, LRC, dificuldade, alinhamento)
+.venv\Scripts\python.exe -m pytest tests -q
+
+:: pente fino do alinhamento de uma música (ou toda a biblioteca sem id)
+.venv\Scripts\python.exe server\audit.py [id] [--web]
+```
+
+O `audit.py` mede, frase a frase, quanto do canto real cai dentro de cada janela
+da letra e sinaliza problemas (frase esticada, além do fim do áudio, canto sem
+frase na letra). Com `--web` cruza a letra com uma fonte externa (lyrics.ovh)
+pra apontar versos faltando.
+
+> **Requisito**: Python **3.13** (o stack de IA ainda não tem wheels pro 3.14).
