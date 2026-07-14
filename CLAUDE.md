@@ -132,11 +132,44 @@ interrompidos por restart voltam pra fila no boot).
 - yt-dlp avisa "No supported JavaScript runtime" — funciona mesmo assim; se o
   YouTube quebrar formatos, instalar deno ou atualizar yt-dlp.
 
-## Roadmap (ideias já discutidas)
+## Roadmap (atualizado 2026-07-13 — prioridades do Marcus, ordem sugerida)
 
-- GPU: onnxruntime-directml (GTX 1060) pra separar em segundos; roformer viável.
-- Pitch lane: iterar (altura, nome das notas, espessura das barras).
-- Duetos (duas linhas de melodia), modo treino (loop de trecho).
+### Prioridade 1 — Multiplayer (ver detalhes abaixo)
+Começar pelo **duelo local por revezamento** (~1 sessão): perfis nome+emoji,
+A canta → B canta → placar comparativo; depois frases alternadas (mic passa-passa
+usando as janelas do forced alignment). Recordes saem do localStorage pro
+library.json. Depois: festa LAN → duelo online.
+
+### Prioridade 2 — Audit/alinhamento ainda mais robusto
+- ✅ (2026-07-13) detectar CANTO DESCOBERTO: energia vocal fora de qualquer
+  janela de frase (adlibs, vocalize, tail de versão diferente) — audit reporta.
+- Próximo: pro trecho descoberto, TRANSCREVER com Whisper e sugerir linhas
+  extras de letra (aprovação manual) — fecha os buracos do gráfico de tom.
+- Comparar com múltiplas fontes web (lyrics.ovh ✅, letras.mus.br/Vagalume) e
+  escolher o texto mais completo antes de alinhar.
+
+### Prioridade 3 — UI do player
+- ✅ (2026-07-13) título realmente centralizado (grid 1fr/auto/1fr).
+- ✅ (2026-07-13) ajuste ⏱ da letra saiu da barra pro menu ☰; lane maior.
+- ✅ (2026-07-13) música indisponível até o preparo completo (sem modo rápido).
+- Próximo: modo telão/fullscreen (F11 + fonte maior), nome das notas no lane,
+  fila de músicas da noite.
+
+### Recomendações do Claude (próximos passos que valem a pena)
+1. **Pontuação de ritmo pra rap** — hoje frases faladas não pontuam (gate de
+   melodia); comparar onsets de energia do mic vs referência na janela da frase
+   → Raplord vira jogo de flow. Esforço médio, ganho alto.
+2. **GPU** — onnxruntime-directml na GTX 1060: preparo de ~8min pra ~1-2min.
+   Testar `pip install onnxruntime-directml` + provider em audio-separator.
+3. **Editor fino por frase** — no player, segurar numa linha abre mini-editor
+   de início/fim (arrastar no lane); salva em lyrics.lines. Mata qualquer
+   resíduo de dessincronia sem depender de IA.
+4. **Fila da festa** — lista "próximas músicas" tocável em sequência; base
+   pro modo festa LAN.
+5. **Backup/restore** — exportar/importar data/ zipado (a biblioteca é
+   trabalho de horas de CPU; merece backup fácil).
+6. **Testes do pipeline** — pytest com WAV sintético (tom central + side)
+   validando separação/alinhamento/dificuldade a cada mudança.
 
 ### Multiplayer (planejado em 2026-07-12, ordem de ataque 1→2→3)
 

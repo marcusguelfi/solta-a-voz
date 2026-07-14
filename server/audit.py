@@ -107,7 +107,7 @@ def audit_song(sid: str, entry: dict) -> dict | None:
         return float(seg.mean())
 
     print(f"\n== {title}  ({len(lines)} frases, áudio {duration}s)")
-    flags_count = {"GHOST": 0, "STRETCH": 0, "FORA": 0, "OVERLAP": 0}
+    flags_count = {"GHOST": 0, "STRETCH": 0, "FORA": 0, "OVERLAP": 0, "DESCOBERTO": 0}
     windows, energies = [], []
     for i, ln in enumerate(lines):
         t, end = ln["t"], ln.get("end") or (lines[i + 1]["t"] if i + 1 < len(lines) else ln["t"] + 5)
@@ -130,6 +130,32 @@ def audit_song(sid: str, entry: dict) -> dict | None:
         if flags:
             print(f"  [{' '.join(flags):>12}] {t:7.2f}->{end:7.2f} "
                   f"canto {sung*100:3.0f}% energia {energ*100:3.0f}%  {ln['text'][:46]}")
+    # canto DESCOBERTO: energia vocal fora de qualquer janela de frase — é o
+    # que aparece "sem marcação" no gráfico (adlib, vocalize, letra incompleta)
+    covered = [False] * len(active)
+    for i, ln in enumerate(lines):
+        t = ln["t"]
+        end = ln.get("end") or (lines[i + 1]["t"] if i + 1 < len(lines) else t + 5)
+        for k in range(max(0, int((t - 0.4) / e_hop)),
+                       min(len(active), int((end + 0.4) / e_hop))):
+            covered[k] = True
+    gap_frames = max(1, int(0.5 / e_hop))
+    k, n = 0, len(active)
+    while k < n:
+        if active[k] and not covered[k]:
+            j, gap = k, 0
+            while j < n and gap <= gap_frames:
+                gap = 0 if (active[j] and not covered[j]) else gap + 1
+                j += 1
+            j -= gap
+            if (j - k) * e_hop >= 2.0:
+                flags_count["DESCOBERTO"] += 1
+                print(f"  [  DESCOBERTO] {k * e_hop:7.1f}->{j * e_hop:7.1f}  "
+                      f"canto sem frase na letra ({(j - k) * e_hop:.1f}s)")
+            k = j + 1
+        else:
+            k += 1
+
     ok = len(lines) - sum(1 for i in range(len(lines))
                           if energies[i] < ENERGY_MIN or windows[i] > MAX_WINDOW)
     print(f"  -> {ok}/{len(lines)} frases saudáveis | energia mediana "

@@ -63,10 +63,22 @@
       <div id="p-title" class="p-title"></div>
       <div id="p-artist" class="p-artist"></div>
     </div>
-    <div id="p-diff" class="diff-badge"></div>
-    <button id="mic-btn" class="mic-btn" title="Ativar microfone e pontuação">🎤 pontuar</button>
-    <div id="score-chip" class="score-chip" hidden>⭐ <b id="score-val">0</b></div>
+    <div class="player-actions">
+      <div id="p-diff" class="diff-badge"></div>
+      <button id="mic-btn" class="mic-btn" title="Ativar microfone e pontuação">🎤 pontuar</button>
+      <div id="score-chip" class="score-chip" hidden>⭐ <b id="score-val">0</b></div>
+      <button id="menu-btn" class="btn-ghost menu-btn" title="Ajustes">☰</button>
+    </div>
   </header>
+
+  <div id="player-menu" class="player-menu" hidden>
+    <div class="offset-group" title="Ajuste fino da sincronia da letra (o offset automático já foi aplicado)">
+      <span class="slider-label">⏱ Letra <span id="off-auto" class="off-auto"></span></span>
+      <button id="off-minus" class="btn-mini" title="letra adiantada? atrasa 0,5s">−0,5s</button>
+      <b id="off-val">+0,0s</b>
+      <button id="off-plus" class="btn-mini" title="letra atrasada? adianta 0,5s">+0,5s</button>
+    </div>
+  </div>
 
   <section id="lyrics-box" class="lyrics-box">
     <div id="countdown" class="countdown" hidden><i></i><i></i><i></i></div>
@@ -99,12 +111,6 @@
         <span class="slider-label">🎸 Instrumental <b id="inst-pct">100%</b></span>
         <input type="range" id="inst-slider" min="0" max="130" value="100">
       </label>
-      <div class="offset-group" title="Ajuste fino da sincronia da letra (o offset automático já foi aplicado)">
-        <span class="slider-label">⏱ Letra <span id="off-auto" class="off-auto"></span></span>
-        <button id="off-minus" class="btn-mini" title="letra adiantada? atrasa 0,5s">−0,5s</button>
-        <b id="off-val">+0,0s</b>
-        <button id="off-plus" class="btn-mini" title="letra atrasada? adianta 0,5s">+0,5s</button>
-      </div>
     </div>
     <canvas id="pitch-lane" class="pitch-lane" hidden></canvas>
     <p class="mixer-hint" id="mode-hint"></p>
@@ -127,6 +133,6 @@
 <div id="toasts" class="toasts"></div>
 <audio id="audio" crossorigin="anonymous" preload="auto"></audio>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

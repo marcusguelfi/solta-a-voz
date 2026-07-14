@@ -635,6 +635,11 @@ function diffOf(song) {
   return song?.lyrics?.difficulty?.label || null;
 }
 
+// música só libera quando o preparo completo terminou (sync de letra + melodia)
+function isReady(song) {
+  return song?.status === "ready" && song?.stems;
+}
+
 function metaHTML(song) {
   const diff = diffOf(song);
   const hasSync = !!(song?.lyrics?.synced || song?.lyrics?.lines);
@@ -678,6 +683,7 @@ function updateCardStatus(song) {
   const busy = PROCESSING.has(song.status);
   refs.prog.hidden = !busy;
   if (busy) refs.progFill.style.width = `${song.progress || 3}%`;
+  refs.card.classList.toggle("locked", !isReady(song));
 }
 
 function renderGrid() {
@@ -714,7 +720,16 @@ function renderGrid() {
       await api(`/api/songs/${song.id}`, { method: "DELETE" });
       loadSongs();
     };
-    card.onclick = () => openPlayer(song);
+    card.onclick = () => {
+      const cur = songs.find((s) => s.id === song.id) || song;
+      if (!isReady(cur)) {
+        toast(PROCESSING.has(cur.status)
+          ? `🎛 "${cur.title}" ainda em preparo (${cur.progress || 0}%) — libera quando o sync estiver perfeito`
+          : `essa música precisa do preparo — usa o "preparar karaokê" no card`);
+        return;
+      }
+      openPlayer(cur);
+    };
     grid.appendChild(card);
     const refs = {
       card,
@@ -994,6 +1009,10 @@ function tick() {
 
 // ---------------------------------------------------------------- player
 async function openPlayer(song) {
+  if (!isReady(song)) {
+    toast("essa música ainda não terminou o preparo 🎛");
+    return;
+  }
   current = song;
   $("player-view").hidden = false;
   $("library-view").style.display = "none";
@@ -1088,6 +1107,7 @@ function closePlayer() {
   disableMic();
   $("results").hidden = true;
   $("score-chip").hidden = true;
+  $("player-menu").hidden = true;
   engine.buffers = null;
   audio.removeAttribute("src");
   cancelAnimationFrame(rafId);
@@ -1098,6 +1118,17 @@ function closePlayer() {
 }
 
 $("back-btn").onclick = closePlayer;
+
+$("menu-btn").onclick = (e) => {
+  e.stopPropagation();
+  $("player-menu").hidden = !$("player-menu").hidden;
+};
+document.addEventListener("click", (e) => {
+  const menu = $("player-menu");
+  if (!menu.hidden && !menu.contains(e.target) && e.target.id !== "menu-btn") {
+    menu.hidden = true;
+  }
+});
 
 $("play-btn").onclick = () => {
   if (engineIsPlaying()) enginePause();
