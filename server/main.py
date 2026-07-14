@@ -776,19 +776,21 @@ def enqueue(sid: str) -> None:
     _jobs.put(sid)
 
 
-threading.Thread(target=_worker, daemon=True, name="karaoke-pipeline").start()
+# KARAOKE_NO_WORKER=1 permite importar este módulo em testes sem efeitos colaterais
+if os.environ.get("KARAOKE_NO_WORKER") != "1":
+    threading.Thread(target=_worker, daemon=True, name="karaoke-pipeline").start()
 
-# jobs interrompidos por restart voltam pra fila
-with _lock:
-    _boot_lib = _load_lib()
-    _stuck = [e["id"] for e in _boot_lib.values()
-              if e.get("status") in ("queued", "separating", "analyzing", "aligning")]
+    # jobs interrompidos por restart voltam pra fila
+    with _lock:
+        _boot_lib = _load_lib()
+        _stuck = [e["id"] for e in _boot_lib.values()
+                  if e.get("status") in ("queued", "separating", "analyzing", "aligning")]
+        for _sid in _stuck:
+            _boot_lib[_sid]["status"] = "queued"
+        if _stuck:
+            _save_lib(_boot_lib)
     for _sid in _stuck:
-        _boot_lib[_sid]["status"] = "queued"
-    if _stuck:
-        _save_lib(_boot_lib)
-for _sid in _stuck:
-    _jobs.put(_sid)
+        _jobs.put(_sid)
 
 
 # ---------------------------------------------------------------- rotas API

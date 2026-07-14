@@ -3,3 +3,4 @@ uvicorn
 yt-dlp
 mutagen
 python-multipart
+pytest

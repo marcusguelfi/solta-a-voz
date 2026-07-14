@@ -152,8 +152,12 @@ library.json. Depois: festa LAN → duelo online.
 - ✅ (2026-07-13) título realmente centralizado (grid 1fr/auto/1fr).
 - ✅ (2026-07-13) ajuste ⏱ da letra saiu da barra pro menu ☰; lane maior.
 - ✅ (2026-07-13) música indisponível até o preparo completo (sem modo rápido).
-- Próximo: modo telão/fullscreen (F11 + fonte maior), nome das notas no lane,
-  fila de músicas da noite.
+- ✅ (2026-07-14) sliders Voz/Instrumental na linha do transporte (sem caixa
+  própria) — lane com ainda mais espaço.
+- ✅ (2026-07-14) **fila da festa**: ➕ no card, barra de fila na biblioteca
+  (localStorage), auto-avanço no fim da música (sem mic) e botão "⏭ próxima
+  da fila" na tela de resultado (com mic).
+- Próximo: modo telão/fullscreen (F11 + fonte maior), nome das notas no lane.
 
 ### Recomendações do Claude (próximos passos que valem a pena)
 1. **Pontuação de ritmo pra rap** — hoje frases faladas não pontuam (gate de
@@ -168,8 +172,10 @@ library.json. Depois: festa LAN → duelo online.
    pro modo festa LAN.
 5. **Backup/restore** — exportar/importar data/ zipado (a biblioteca é
    trabalho de horas de CPU; merece backup fácil).
-6. **Testes do pipeline** — pytest com WAV sintético (tom central + side)
-   validando separação/alinhamento/dificuldade a cada mudança.
+6. ✅ (2026-07-14) **Testes** — `tests/test_core.py` cobre as funções puras
+   (metadata, LRC, dificuldade, correlação, reconcile, onset). Rodar:
+   `.venv\Scripts\python.exe -m pytest tests -q` (main.py importa limpo com
+   env KARAOKE_NO_WORKER=1). Falta: teste e2e do pipeline com WAV sintético.
 
 ### Multiplayer (planejado em 2026-07-12, ordem de ataque 1→2→3)
 

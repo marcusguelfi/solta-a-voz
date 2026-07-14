@@ -186,6 +186,36 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 .song-card:hover .card-del { opacity: 1; }
 .card-del:hover { color: var(--magenta); }
 
+/* fila da festa */
+.queue-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+  border: 1px solid #2b1f3d; border-radius: 14px;
+  padding: 10px 16px; margin-bottom: 18px;
+}
+.q-title { font: 700 .95rem var(--font-display); color: var(--amber); white-space: nowrap; }
+.queue-list { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.q-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #2b1f3d; color: var(--ink); border-radius: 999px;
+  padding: 5px 6px 5px 12px; font-size: .85rem;
+}
+.q-x {
+  background: none; border: none; color: var(--ink-dim); cursor: pointer;
+  font-size: .95rem; padding: 0 5px; border-radius: 50%;
+}
+.q-x:hover { color: var(--magenta); }
+.q-play { padding: 9px 16px; }
+
+.card-queue {
+  position: absolute; top: 62px; right: 10px; width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(11,8,18,.8); border: 1px solid #3c2b52; color: var(--amber);
+  font-size: 1rem; cursor: pointer;
+  opacity: 0; transform: scale(.8); transition: opacity .18s, transform .18s;
+}
+.song-card:hover .card-queue { opacity: 1; transform: scale(1); }
+.song-card.locked .card-queue { display: none; }
+
 /* música indisponível até o preparo completo */
 .song-card.locked { cursor: default; }
 .song-card.locked .cover, .song-card.locked .cover-fallback { opacity: .5; filter: grayscale(.4); }
@@ -326,12 +356,8 @@ input[type="range"]::-moz-range-thumb {
 }
 .seek { flex: 1; }
 
-.mixer {
-  display: flex; gap: 30px; align-items: center; justify-content: center; flex-wrap: wrap;
-  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
-  border: 1px solid #2b1f3d; border-radius: 14px; padding: 12px 22px;
-}
-.slider-group { display: flex; flex-direction: column; gap: 2px; min-width: 190px; }
+.transport { flex-wrap: wrap; }
+.slider-group { display: flex; flex-direction: column; gap: 2px; min-width: 160px; margin-left: 10px; }
 .slider-label { font-size: .82rem; color: var(--ink-dim); display: flex; justify-content: space-between; }
 .slider-label b { color: var(--ink); }
 .slider-group.vocal .slider-label b { color: var(--amber); }

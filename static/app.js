@@ -148,6 +148,7 @@ function stemsPlayFrom(offset) {
       engine.startOffset = getDuration();
       $("play-btn").textContent = "▶";
       if (score.enabled) showResults();
+      else playNextInQueue(); // festa não para: emenda a próxima da fila
     }
   };
   engine.startedAt = now;
@@ -416,6 +417,7 @@ function showResults() {
   } else {
     $("res-record").textContent = `recorde: ${prev.toLocaleString("pt-BR")}`;
   }
+  $("res-next").hidden = getQueue().length === 0;
   $("results").hidden = false;
 }
 
@@ -625,6 +627,7 @@ async function loadSongs() {
   } else {
     renderGrid();
   }
+  renderQueue();
   clearTimeout(pollTimer);
   if (songs.some((s) => PROCESSING.has(s.status))) {
     pollTimer = setTimeout(() => loadSongs().catch(() => {}), 4000);
@@ -705,7 +708,8 @@ function renderGrid() {
              onerror="this.outerHTML='<div class=cover-fallback>${(song.title || "?")[0].toUpperCase()}</div>'">`
         : `<div class="cover-fallback">${(song.title || "?")[0].toUpperCase()}</div>`}
       <button class="card-del" title="Remover">✕</button>
-      <button class="card-play" title="Cantar! (dá pra cantar até enquanto prepara)">▶</button>
+      <button class="card-queue" title="Adicionar à fila da festa">➕</button>
+      <button class="card-play" title="Cantar!">▶</button>
       <div class="card-body">
         <div class="card-title"></div>
         <div class="card-artist"></div>
@@ -719,6 +723,16 @@ function renderGrid() {
       if (!confirm(`Remover "${song.title}" do repertório?`)) return;
       await api(`/api/songs/${song.id}`, { method: "DELETE" });
       loadSongs();
+    };
+    card.querySelector(".card-queue").onclick = (e) => {
+      e.stopPropagation();
+      const cur = songs.find((s) => s.id === song.id) || song;
+      if (!isReady(cur)) {
+        toast("essa ainda está em preparo — entra na fila quando ficar pronta");
+        return;
+      }
+      setQueue([...getQueue(), song.id]);
+      toast(`🎶 "${song.title}" entrou na fila da festa`);
     };
     card.onclick = () => {
       const cur = songs.find((s) => s.id === song.id) || song;
@@ -746,6 +760,65 @@ $("add-toggle").onclick = () => {
   const panel = $("add-panel");
   panel.hidden = !panel.hidden;
   if (!panel.hidden) $("url-input").focus();
+};
+
+// ---------------------------------------------------------------- fila da festa
+function getQueue() {
+  try { return JSON.parse(localStorage.getItem("queue") || "[]"); } catch { return []; }
+}
+
+function setQueue(q) {
+  localStorage.setItem("queue", JSON.stringify(q));
+  renderQueue();
+}
+
+function renderQueue() {
+  const bar = $("queue-bar");
+  const q = getQueue().filter((id) => songs.some((s) => s.id === id));
+  bar.hidden = q.length === 0;
+  const list = $("queue-list");
+  list.innerHTML = "";
+  q.forEach((id, i) => {
+    const s = songs.find((x) => x.id === id);
+    const chip = document.createElement("span");
+    chip.className = "q-chip";
+    chip.textContent = `${i + 1}. ${s.title}`;
+    const x = document.createElement("button");
+    x.className = "q-x";
+    x.textContent = "×";
+    x.title = "Tirar da fila";
+    x.onclick = () => {
+      const q2 = getQueue();
+      q2.splice(i, 1);
+      setQueue(q2);
+    };
+    chip.appendChild(x);
+    list.appendChild(chip);
+  });
+}
+
+function playNextInQueue() {
+  const q = getQueue();
+  while (q.length) {
+    const id = q.shift();
+    const s = songs.find((x) => x.id === id);
+    if (s && isReady(s)) {
+      setQueue(q);
+      openPlayer(s);
+      return true;
+    }
+  }
+  setQueue(q);
+  return false;
+}
+
+$("queue-play").onclick = () => {
+  if (!playNextInQueue()) toast("fila vazia — usa o ➕ nos cards pra montar a festa");
+};
+$("queue-clear").onclick = () => setQueue([]);
+$("res-next").onclick = () => {
+  $("results").hidden = true;
+  if (!playNextInQueue()) closePlayer();
 };
 
 async function warmLyrics(song) {

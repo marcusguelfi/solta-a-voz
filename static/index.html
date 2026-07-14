@@ -50,6 +50,13 @@
       </div>
     </section>
 
+    <div id="queue-bar" class="queue-bar" hidden>
+      <span class="q-title">🎶 fila da festa</span>
+      <div id="queue-list" class="queue-list"></div>
+      <button id="queue-play" class="btn-accent q-play">▶ tocar fila</button>
+      <button id="queue-clear" class="btn-mini" title="Esvaziar fila">limpar</button>
+    </div>
+
     <div id="song-grid" class="song-grid"></div>
     <p id="empty-msg" class="empty" hidden>palco vazio… clica em "＋ adicionar música" e solta a voz 🎤</p>
   </section>
@@ -101,8 +108,6 @@
       <span id="cur-time" class="time">0:00</span>
       <input type="range" id="seek" min="0" max="1000" value="0" class="seek">
       <span id="tot-time" class="time">0:00</span>
-    </div>
-    <div class="mixer">
       <label class="slider-group vocal">
         <span class="slider-label">🎙 Voz <b id="vocal-pct">25%</b></span>
         <input type="range" id="vocal-slider" min="0" max="100" value="25">
@@ -123,6 +128,7 @@
       <p id="res-detail"></p>
       <p id="res-record" class="res-record"></p>
       <div class="res-actions">
+        <button id="res-next" class="btn-accent" hidden>⏭ próxima da fila</button>
         <button id="res-again" class="btn-accent">🎤 Cantar de novo</button>
         <button id="res-back" class="btn-ghost">voltar ao repertório</button>
       </div>
@@ -133,6 +139,6 @@
 <div id="toasts" class="toasts"></div>
 <audio id="audio" crossorigin="anonymous" preload="auto"></audio>
 
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
