@@ -111,3 +111,19 @@ frase na letra). Com `--web` cruza a letra com uma fonte externa (lyrics.ovh)
 pra apontar versos faltando.
 
 > **Requisito**: Python **3.13** (o stack de IA ainda não tem wheels pro 3.14).
+
+## Uso responsável
+
+Projeto pessoal, feito pra cantar em casa com músicas que você já tem ou tem
+direito de usar. Ele **baixa áudio** (via yt-dlp) e **busca letras** (LRCLIB) que
+podem ser material protegido por direitos autorais — a responsabilidade pelo que
+você baixa e por respeitar os termos das fontes é sua. Nada é redistribuído: tudo
+fica local na sua máquina. Não use para fins comerciais nem para redistribuir
+conteúdo de terceiros.
+
+Créditos das ferramentas open source que tornam isso possível:
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) ·
+[audio-separator](https://github.com/nomadkaraoke/python-audio-separator) (MDX-Net) ·
+[stable-ts](https://github.com/jianfch/stable-ts) / OpenAI Whisper ·
+[librosa](https://librosa.org/) · [LRCLIB](https://lrclib.net/) ·
+[FastAPI](https://fastapi.tiangolo.com/) · [FFmpeg](https://ffmpeg.org/).

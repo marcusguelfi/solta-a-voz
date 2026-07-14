@@ -54,7 +54,8 @@ interrompidos por restart voltam pra fila no boot).
    a. **Forced alignment (stable-ts/Whisper "small", CPU)** — `model.align()`
       com `original_split=True` acha início E fim de cada linha CANTADA.
       Resultado em `lyrics.lines = [{t, end, text}]`, `alignMethod: "whisper"`,
-      `autoOffset = 0`. Confiança: ≥70% das linhas com end>start>0, senão descarta.
+      `autoOffset = 0`. Confiança: ≥50% das linhas (mín. 4) com end>start>0, senão
+      descarta; as fracas são interpoladas entre as âncoras boas (rap denso).
    b. **Correlação** — testa até 8 versões de letra do LRCLIB (a letra pode ser
       de OUTRA versão da música!) contra a máscara de canto do pyin via
       cross-correlation (±35s); escolhe a de maior cobertura → `autoOffset` global.
@@ -66,9 +67,9 @@ interrompidos por restart voltam pra fila no boot).
 - **Modo stems** (música ready): dois `AudioBufferSource` (vocals + instrumental)
   em sync de sample, gains independentes. Voz padrão **0%**. Limiter
   (DynamicsCompressor) na saída.
-- **Modo center-cut** (música ainda processando): mid/side ao vivo no
-  MediaElementSource — mid highpass 140Hz = "voz" atenuável, graves preservados.
-  Dá pra cantar enquanto a IA trabalha.
+- **Modo center-cut** (FALLBACK apenas): mid/side ao vivo no MediaElementSource —
+  mid highpass 140Hz = "voz" atenuável, graves preservados. Só entra se os stems
+  falharem no load; a música normal fica bloqueada até `ready` (guard `isReady`).
 - Sliders com memória por modo no localStorage (`mix:vocal:stems` etc.).
 - **Letra**: usa `lyrics.lines` (com fim de frase!) quando existe; senão parse LRC.
   `lyricTime() = getTime() - autoOffset + manualOffset + LYRIC_LEAD(0.45s)` —
@@ -168,8 +169,8 @@ library.json. Depois: festa LAN → duelo online.
 3. **Editor fino por frase** — no player, segurar numa linha abre mini-editor
    de início/fim (arrastar no lane); salva em lyrics.lines. Mata qualquer
    resíduo de dessincronia sem depender de IA.
-4. **Fila da festa** — lista "próximas músicas" tocável em sequência; base
-   pro modo festa LAN.
+4. ✅ (2026-07-14) **Fila da festa** — ➕ no card, barra na biblioteca, auto-avanço.
+   Base pro modo festa LAN.
 5. **Backup/restore** — exportar/importar data/ zipado (a biblioteca é
    trabalho de horas de CPU; merece backup fácil).
 6. ✅ (2026-07-14) **Testes** — `tests/test_core.py` cobre as funções puras
