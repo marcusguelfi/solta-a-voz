@@ -98,7 +98,7 @@ interrompidos por restart voltam pra fila no boot).
 | Método | Rota | Função |
 |---|---|---|
 | POST | /api/upload | multipart de áudio → entra na fila |
-| POST | /api/link | {url} → yt-dlp (m4a, sem ffmpeg) → fila |
+| POST | /api/link | {url} → yt-dlp (m4a) → fila. **Playlist** (`is_playlist_url`): baixa todas em background, retorna `{playlist, count}`. `list=RD*` = rádio/mix = single |
 | GET | /api/songs | biblioteca ordenada por addedAt desc |
 | PATCH/DELETE | /api/songs/{id} | edita metadata / remove tudo |
 | POST | /api/process/{id} | re-enfileira preparo |
@@ -141,6 +141,10 @@ interrompidos por restart voltam pra fila no boot).
   = blocos de energia na linha central (rhythm, rap falado).
 - yt-dlp avisa "No supported JavaScript runtime" — funciona mesmo assim; se o
   YouTube quebrar formatos, instalar deno ou atualizar yt-dlp.
+- **Playlist vs rádio**: `watch?v=X&list=RD...&start_radio=1` é mix infinito
+  auto-gerado (tratar como single, senão importaria sem parar). `is_playlist_url`
+  só considera playlist real (`/playlist`, `/sets/`, ou `list=` não-RD). Import
+  em thread daemon separada, teto `MAX_PLAYLIST=50`; download reusa `_download_one`.
 
 ## Roadmap (atualizado 2026-07-13 — prioridades do Marcus, ordem sugerida)
 

@@ -150,6 +150,15 @@ def test_clamp_ends_to_voice_preserva_nota_longa(monkeypatch):
     assert lines[0]["end"] == 13.0
 
 
+def test_is_playlist_url():
+    assert main.is_playlist_url("https://www.youtube.com/playlist?list=PLabc")
+    assert main.is_playlist_url("https://www.youtube.com/watch?v=X&list=PLabc")
+    assert main.is_playlist_url("https://soundcloud.com/user/sets/minha-lista")
+    # rádio/mix auto-gerado a partir de um vídeo = single, não playlist
+    assert not main.is_playlist_url("https://www.youtube.com/watch?v=X&list=RDX&start_radio=1")
+    assert not main.is_playlist_url("https://www.youtube.com/watch?v=X")
+
+
 def test_clamp_sem_energia_nao_faz_nada(monkeypatch):
     monkeypatch.setattr(main, "load_pitch", lambda sid: None)
     lines = [{"t": 0.0, "end": 30.0, "text": "x"}]

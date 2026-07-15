@@ -1,9 +1,11 @@
 # 🎤 Solta a Voz — karaokê caseiro
 
-Suba um arquivo de áudio **ou cole um link** (YouTube etc.): o app baixa a música,
-mostra a metadata (título, artista, duração, dificuldade) e **prepara o karaokê
-sozinho**: separa a voz do instrumental com IA, busca a letra sincronizada e
-alinha a letra pelo início real do canto. Depois é só entrar e cantar.
+Suba um arquivo de áudio **ou cole um link** (YouTube etc.) — de uma música **ou
+de uma playlist inteira**: o app baixa, mostra a metadata (título, artista,
+duração, dificuldade) e **prepara o karaokê sozinho**: separa a voz do
+instrumental com IA, busca a letra sincronizada e alinha a letra pela cantoria.
+Depois é só entrar e cantar. (Link de playlist importa todas as músicas de uma
+vez; um `mix`/rádio automático do YouTube conta como música única.)
 
 ## Pipeline de preparo (automático ao adicionar)
 

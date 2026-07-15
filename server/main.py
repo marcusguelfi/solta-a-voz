@@ -892,31 +892,28 @@ class LinkBody(BaseModel):
     url: str
 
 
-@app.post("/api/link")
-def add_from_link(body: LinkBody):
+MAX_PLAYLIST = 50  # teto de segurança pra não importar uma rádio infinita
+
+
+def _download_one(url: str) -> dict:
+    """Baixa UM áudio por link e cria a entrada (sem enfileirar). Retorna a entrada."""
     import yt_dlp
 
-    url = body.url.strip()
-    if not re.match(r"^https?://", url):
-        raise HTTPException(400, "Link inválido — cole uma URL http(s)")
     sid = uuid.uuid4().hex[:12]
     opts = {
         "format": "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio/best",
         "outtmpl": str(MEDIA / f"{sid}.%(ext)s"),
-        "noplaylist": True,
+        "noplaylist": True,  # um vídeo por vez, mesmo se a URL trouxer &list=
         "quiet": True,
         "no_warnings": True,
     }
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-    except Exception as exc:
-        raise HTTPException(502, f"Falha ao baixar: {exc}") from exc
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
     if info.get("entries"):
         info = info["entries"][0]
     files = list(MEDIA.glob(f"{sid}.*"))
     if not files:
-        raise HTTPException(502, "Download terminou sem arquivo de áudio")
+        raise RuntimeError("download terminou sem arquivo de áudio")
     dest = files[0]
     # yt-dlp às vezes lista TODOS os compositores — 2 nomes bastam pra exibir
     raw_artist = info.get("artist") or ", ".join(info.get("artists") or []) or ""
@@ -935,8 +932,72 @@ def add_from_link(body: LinkBody):
         "status": "none", "stems": False, "autoOffset": 0,
     }
     _add_entry(entry)
-    enqueue(sid)
-    return _get_entry(sid)
+    return entry
+
+
+def is_playlist_url(url: str) -> bool:
+    """Playlist de verdade (/playlist ou list= PL/OL/FL/UU/LL...); list=RD* é
+    rádio/mix auto-gerado a partir de UM vídeo — trata como single."""
+    if "/playlist" in url or "/sets/" in url:  # youtube playlist / soundcloud set
+        return True
+    m = re.search(r"[?&]list=([^&]+)", url)
+    return bool(m and not m.group(1).startswith("RD"))
+
+
+def playlist_entry_urls(url: str) -> list[str]:
+    """URLs dos vídeos de uma playlist (extração rápida, sem baixar)."""
+    import yt_dlp
+
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
+            "noplaylist": False, "playlistend": MAX_PLAYLIST}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    out = []
+    for e in info.get("entries") or []:
+        u = e.get("url") or e.get("id") or ""
+        if u and not u.startswith("http"):
+            u = f"https://www.youtube.com/watch?v={u}"
+        if u:
+            out.append(u)
+    return out
+
+
+def _import_playlist(urls: list[str]) -> None:
+    """Baixa cada item da playlist em sequência e enfileira o preparo (background)."""
+    for u in urls:
+        try:
+            entry = _download_one(u)
+            enqueue(entry["id"])
+        except Exception:
+            logging.exception("falha ao importar item da playlist: %s", u)
+
+
+@app.post("/api/link")
+def add_from_link(body: LinkBody):
+    url = body.url.strip()
+    if not re.match(r"^https?://", url):
+        raise HTTPException(400, "Link inválido — cole uma URL http(s)")
+
+    if is_playlist_url(url):
+        try:
+            urls = playlist_entry_urls(url)
+        except Exception as exc:
+            raise HTTPException(502, f"Falha ao ler a playlist: {exc}") from exc
+        if not urls:
+            raise HTTPException(502, "Playlist vazia ou inacessível")
+        if len(urls) == 1:  # "playlist" de 1 item -> trata como single
+            url = urls[0]
+        else:
+            threading.Thread(target=_import_playlist, args=(urls,),
+                             daemon=True, name="playlist-import").start()
+            return {"playlist": True, "count": len(urls)}
+
+    try:
+        entry = _download_one(url)
+    except Exception as exc:
+        raise HTTPException(502, f"Falha ao baixar: {exc}") from exc
+    enqueue(entry["id"])
+    return _get_entry(entry["id"])
 
 
 # faixa de % por estágio + custo esperado (medido neste i7-7700, CPU)

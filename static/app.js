@@ -1052,16 +1052,23 @@ async function addLink() {
   if (!url) return;
   setBusy("baixando do link… isso pode levar um minutinho");
   try {
-    const song = await api("/api/link", {
+    const res = await api("/api/link", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     });
     $("url-input").value = "";
-    toast(`🎵 "${song.title}" baixada! Preparando o karaokê…`);
     $("add-panel").hidden = true;
-    await loadSongs();
-    warmLyrics(song);
+    if (res.playlist) {
+      toast(`🎶 importando ${res.count} músicas da playlist — vão aparecendo aqui…`);
+      await loadSongs();
+      // as músicas entram uma a uma (download em background); garante o polling
+      [3000, 8000, 15000].forEach((ms) => setTimeout(() => loadSongs().catch(() => {}), ms));
+    } else {
+      toast(`🎵 "${res.title}" baixada! Preparando o karaokê…`);
+      await loadSongs();
+      warmLyrics(res);
+    }
   } catch (err) {
     toast("Erro no download: " + err.message, true);
   } finally {
