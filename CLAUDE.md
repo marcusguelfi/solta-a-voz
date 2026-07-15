@@ -144,11 +144,18 @@ interrompidos por restart voltam pra fila no boot).
 
 ## Roadmap (atualizado 2026-07-13 — prioridades do Marcus, ordem sugerida)
 
-### Prioridade 1 — Multiplayer (ver detalhes abaixo)
-Começar pelo **duelo local por revezamento** (~1 sessão): perfis nome+emoji,
-A canta → B canta → placar comparativo; depois frases alternadas (mic passa-passa
-usando as janelas do forced alignment). Recordes saem do localStorage pro
-library.json. Depois: festa LAN → duelo online.
+### Prioridade 1 — Multiplayer
+- ✅ (2026-07-14) **Dueto & Duelo local** (frontend puro). Botão "👥 dueto &
+  duelo" na biblioteca → modal de setup (modo + 2 jogadores nome/emoji,
+  salvos em localStorage `mp:players`) → sessão "armada" → clicar numa música
+  pronta abre em modo mp. As frases se revezam por verso (`assignOwners`,
+  gap-based: troca no silêncio > 2,5s ou a cada 6 frases), cada frase pontua
+  pro dono via `finalizeLine` (roteia pra `mp.totals[owner]`). Dueto = placar
+  combinado + nota; Duelo = dois placares + vencedor (`showMpResults`). Estado
+  no objeto `mp`; um mic só (passa entre os dois). Linhas com tint por dono
+  (`data-owner` + `--p0`/`--p1`), chip do turno destacado, indicador "🎤 nome".
+- Próximo: festa LAN (celular como controle) → duelo online (relay WebSocket).
+  Ver detalhes lá embaixo.
 
 ### Prioridade 2 — Audit/alinhamento ainda mais robusto
 - ✅ (2026-07-13) detectar CANTO DESCOBERTO: energia vocal fora de qualquer
@@ -226,6 +233,11 @@ library.json. Depois: festa LAN → duelo online.
   segundos, em vez de ~2,5min de Whisper por música.
 - **`javascript_tool` mantém escopo entre chamadas** — não redeclare `const out`
   duas vezes (dá "already declared"); use nomes diferentes ou `var`.
+- **Mic é bloqueado no preview pane** (getUserMedia negado). Pra validar
+  pontuação/multiplayer sem mic: injete `score.samples` na mão (`{t, midi}`),
+  setando `score.enabled=true` e um `score.ref` sintético, e chame `finalizeLine`
+  / `showMpResults` direto. A lógica é validável assim; o mic real só funciona
+  na máquina do usuário.
 
 ## Validação (2026-07-14) — baseline verde
 

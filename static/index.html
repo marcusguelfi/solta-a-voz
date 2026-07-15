@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -29,7 +29,14 @@
     <div class="lib-head">
       <h2>Repertório</h2>
       <span id="song-count" class="count"></span>
+      <button id="mp-toggle" class="btn-ghost mp-toggle">👥 dueto &amp; duelo</button>
       <button id="add-toggle" class="btn-accent add-toggle">＋ adicionar música</button>
+    </div>
+
+    <div id="mp-banner" class="mp-banner" hidden>
+      <span id="mp-banner-text"></span>
+      <span class="mp-banner-hint">— escolha a música no repertório</span>
+      <button id="mp-cancel" class="btn-mini">cancelar</button>
     </div>
 
     <section id="add-panel" class="add-panel" hidden>
@@ -74,6 +81,10 @@
       <div id="p-diff" class="diff-badge"></div>
       <button id="mic-btn" class="mic-btn" title="Ativar microfone e pontuação">🎤 pontuar</button>
       <div id="score-chip" class="score-chip" hidden>⭐ <b id="score-val">0</b></div>
+      <div id="mp-scores" class="mp-scores" hidden>
+        <div class="mp-chip" id="mp-chip-0"><span class="mpc-name"></span> <b>0</b></div>
+        <div class="mp-chip" id="mp-chip-1"><span class="mpc-name"></span> <b>0</b></div>
+      </div>
       <button id="menu-btn" class="btn-ghost menu-btn" title="Ajustes">☰</button>
     </div>
   </header>
@@ -88,6 +99,7 @@
   </div>
 
   <section id="lyrics-box" class="lyrics-box">
+    <div id="turn-indic" class="turn-indic" hidden></div>
     <div id="countdown" class="countdown" hidden><i></i><i></i><i></i></div>
     <div id="rating-pop" class="rating-pop" hidden></div>
     <div id="lyrics-scroller" class="lyrics-scroller"></div>
@@ -123,10 +135,21 @@
 
   <div id="results" class="results" hidden>
     <div class="results-card">
-      <h2 id="res-grade">A</h2>
-      <p id="res-total">0 pontos</p>
-      <p id="res-detail"></p>
-      <p id="res-record" class="res-record"></p>
+      <div id="res-single">
+        <h2 id="res-grade">A</h2>
+        <p id="res-total">0 pontos</p>
+        <p id="res-detail"></p>
+        <p id="res-record" class="res-record"></p>
+      </div>
+      <div id="res-mp" hidden>
+        <h2 id="res-mp-title">Duelo</h2>
+        <div class="mp-result-grid">
+          <div class="mp-side" id="res-mp-p0"></div>
+          <div class="mp-vs">×</div>
+          <div class="mp-side" id="res-mp-p1"></div>
+        </div>
+        <p id="res-mp-verdict" class="res-verdict"></p>
+      </div>
       <div class="res-actions">
         <button id="res-next" class="btn-accent" hidden>⏭ próxima da fila</button>
         <button id="res-again" class="btn-accent">🎤 Cantar de novo</button>
@@ -136,9 +159,35 @@
   </div>
 </div>
 
+<!-- ======================= SETUP 2 JOGADORES ======================= -->
+<div id="mp-setup" class="results" hidden>
+  <div class="results-card mp-setup-card">
+    <h2 class="mp-setup-title">👥 Dois jogadores</h2>
+    <div class="mp-mode-row">
+      <button class="mp-mode-btn active" data-mode="duelo">⚔️ Duelo<small>competição — quem canta melhor</small></button>
+      <button class="mp-mode-btn" data-mode="dueto">🎶 Dueto<small>juntos — placar combinado</small></button>
+    </div>
+    <div class="mp-players">
+      <div class="mp-player" data-p="0">
+        <div class="mp-emoji-row"></div>
+        <input class="mp-name-in" maxlength="14" placeholder="Jogador 1">
+      </div>
+      <div class="mp-player" data-p="1">
+        <div class="mp-emoji-row"></div>
+        <input class="mp-name-in" maxlength="14" placeholder="Jogador 2">
+      </div>
+    </div>
+    <p class="mp-setup-hint">as frases da letra se revezam entre os dois — passem o microfone 🎤</p>
+    <div class="res-actions">
+      <button id="mp-start" class="btn-accent">começar →</button>
+      <button id="mp-setup-cancel" class="btn-ghost">cancelar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts" class="toasts"></div>
 <audio id="audio" crossorigin="anonymous" preload="auto"></audio>
 
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

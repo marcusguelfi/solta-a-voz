@@ -439,6 +439,83 @@ input[type="range"]::-moz-range-thumb {
 .res-actions { display: flex; gap: 12px; justify-content: center; margin-top: 28px; }
 .res-actions .btn-accent { padding: 12px 24px; }
 
+/* ---------- multiplayer (dueto & duelo) ---------- */
+:root { --p0: #ff2d78; --p1: #37d6e0; }
+.mp-toggle { margin-left: auto; }
+.lib-head .add-toggle { margin-left: 0; }
+
+.mp-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--p1) 12%, var(--bg-raised));
+  border: 1px solid #2b4a52; border-radius: 14px; padding: 10px 16px; margin-bottom: 18px;
+}
+#mp-banner-text { font: 700 .95rem var(--font-display); }
+.mp-banner-hint { color: var(--ink-dim); font-size: .85rem; }
+.mp-banner .btn-mini { margin-left: auto; }
+
+.mp-scores { display: flex; gap: 8px; }
+.mp-chip {
+  font: 700 .95rem var(--font-display); color: var(--ink-dim);
+  background: #2b1f3d; border-radius: 999px; padding: 6px 13px; white-space: nowrap;
+  border: 1.5px solid transparent; transition: border-color .2s, color .2s;
+}
+.mp-chip b { color: var(--ink); }
+#mp-chip-0.turn { border-color: var(--p0); color: var(--ink); }
+#mp-chip-1.turn { border-color: var(--p1); color: var(--ink); }
+
+.turn-indic {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3;
+  font: 800 1.1rem var(--font-display); padding: 6px 20px; border-radius: 999px;
+  background: var(--bg-card); border: 2px solid #3c2b52; white-space: nowrap;
+}
+.turn-indic.p0 { border-color: var(--p0); box-shadow: 0 0 20px -6px var(--p0); }
+.turn-indic.p1 { border-color: var(--p1); box-shadow: 0 0 20px -6px var(--p1); }
+
+/* faixa colorida à esquerda da linha, por dono */
+.lyr-line[data-owner="0"] { border-left: 3px solid color-mix(in srgb, var(--p0) 60%, transparent); padding-left: 14px; }
+.lyr-line[data-owner="1"] { border-left: 3px solid color-mix(in srgb, var(--p1) 60%, transparent); padding-left: 14px; }
+
+/* setup */
+.mp-setup-card { max-width: 520px; }
+.mp-setup-title { font: 800 2rem var(--font-display); margin-bottom: 18px; }
+.mp-mode-row { display: flex; gap: 12px; margin-bottom: 22px; }
+.mp-mode-btn {
+  flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center;
+  background: var(--bg-raised); border: 2px solid #32244a; color: var(--ink);
+  border-radius: 14px; padding: 14px; cursor: pointer; font: 700 1.1rem var(--font-display);
+  transition: border-color .2s, background .2s;
+}
+.mp-mode-btn small { font: 400 .74rem var(--font-body); color: var(--ink-dim); }
+.mp-mode-btn.active { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, var(--bg-raised)); }
+.mp-players { display: flex; gap: 14px; margin-bottom: 16px; }
+.mp-player { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.mp-emoji-row { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.mp-emoji {
+  font-size: 1.3rem; background: var(--bg-raised); border: 2px solid transparent;
+  border-radius: 10px; padding: 4px 7px; cursor: pointer; line-height: 1;
+}
+.mp-emoji.sel { border-color: var(--amber); background: #2b1f3d; }
+.mp-name-in {
+  background: var(--bg-raised); border: 1px solid #32244a; color: var(--ink);
+  border-radius: 10px; padding: 10px 12px; font: inherit; text-align: center;
+}
+.mp-name-in:focus { outline: none; border-color: var(--amber); }
+.mp-setup-hint { color: var(--ink-dim); font-size: .84rem; margin-bottom: 22px; }
+
+/* resultado mp */
+.mp-result-grid { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 8px 0 18px; }
+.mp-vs { font: 800 2rem var(--font-display); color: var(--ink-dim); }
+.mp-side { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 120px; }
+.mp-side .mp-emoji { font-size: 2.4rem; background: none; border: none; padding: 0; cursor: default; }
+.mp-side .mp-name { font: 700 1rem var(--font-display); }
+.mp-side .mp-pts { font: 800 1.8rem var(--font-display);
+  background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.mp-side .mp-grade { font: 800 1.3rem var(--font-display); }
+.mp-side.win { transform: scale(1.08); }
+.mp-side.win .mp-name::after { content: " 🏆"; }
+.res-verdict { font: 700 1.3rem var(--font-display); color: var(--amber); margin-top: 6px; }
+#res-mp-title { font: 800 2.4rem var(--font-display); margin-bottom: 8px; }
+
 /* ---------- toasts ---------- */
 .toasts { position: fixed; bottom: 22px; right: 22px; z-index: 10; display: flex; flex-direction: column; gap: 10px; }
 .toast {

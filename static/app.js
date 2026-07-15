@@ -291,7 +291,7 @@ async function enableMic() {
   localStorage.setItem("mic:pref", "1");
   $("mic-btn").classList.add("on");
   $("mic-btn").textContent = "🎤 pontuando";
-  $("score-chip").hidden = false;
+  if (!mp.active) $("score-chip").hidden = false; // no mp os chips dos jogadores mostram
   if (engine.mode !== "stems") {
     toast("A pontuação precisa do preparo por IA — prepare a música na biblioteca");
   } else if (!score.ref) {
@@ -364,7 +364,6 @@ function finalizeLine(i) {
   if (refVoiced < 8) return; // linha sem melodia mensurável (vinheta, fala…)
 
   const mics = score.samples.filter((s) => s.t >= a0 && s.t < a1);
-  score.maxPossible += 100;
   let pts = 0;
   let label = "Cadê a voz? 👀";
   if (mics.length >= 3) {
@@ -381,9 +380,19 @@ function finalizeLine(i) {
               pts >= 55 ? "Boa!" : pts >= 30 ? "Quase…" : "Ops… 🙈";
     }
   }
-  score.total += pts;
-  score.lineResults.push(pts);
-  $("score-val").textContent = score.total.toLocaleString("pt-BR");
+  // roteia a pontuação: pro dono da frase (multiplayer) ou pro placar único
+  if (mp.active) {
+    const o = mp.owner[i] ?? 0;
+    mp.totals[o] += pts;
+    mp.maxes[o] += 100;
+    mp.results[o].push(pts);
+    updateMpChips();
+  } else {
+    score.total += pts;
+    score.maxPossible += 100;
+    score.lineResults.push(pts);
+    $("score-val").textContent = score.total.toLocaleString("pt-BR");
+  }
   showRating(label, pts);
 }
 
@@ -406,6 +415,9 @@ function showResults() {
          lyrLines[score.nextToScore].t < lyricTime() + 1) {
     finalizeLine(score.nextToScore++);
   }
+  if (mp.active) { showMpResults(); return; }
+  $("res-single").hidden = false;
+  $("res-mp").hidden = true;
   if (!score.maxPossible) return;
   const pct = (score.total / score.maxPossible) * 100;
   const grade = pct >= 93 ? "S" : pct >= 82 ? "A" : pct >= 68 ? "B" :
@@ -600,6 +612,10 @@ $("mic-btn").onclick = async () => {
 
 $("res-again").onclick = () => {
   resetScore();
+  if (mp.active) {
+    mp.totals = [0, 0]; mp.maxes = [0, 0]; mp.results = [[], []];
+    updateMpChips();
+  }
   engineSeek(0);
   enginePlay();
 };
@@ -830,6 +846,176 @@ $("res-next").onclick = () => {
   if (!playNextInQueue()) closePlayer();
 };
 
+// ---------------------------------------------------------------- multiplayer local (dueto/duelo)
+// Um mic passando entre dois jogadores. As frases da letra se revezam por verso
+// (gap-based) — cada frase pontua pro seu dono. Dueto = placar combinado
+// (cooperativo); Duelo = dois placares + vencedor. Mesma engine, resultado diferente.
+const mp = {
+  armed: false, active: false, mode: "duelo",
+  players: [{ name: "", emoji: "🎤" }, { name: "", emoji: "🎶" }],
+  owner: [], totals: [0, 0], maxes: [0, 0], results: [[], []],
+};
+const MP_EMOJIS = ["🎤", "🎶", "🦄", "🐯", "🔥", "🌟", "👑", "🎸", "🐸", "🦊", "💜", "⚡"];
+
+function loadMpPlayers() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("mp:players") || "null");
+    if (saved && saved.length === 2) mp.players = saved;
+  } catch {}
+  mp.players[0].emoji ||= "🎤";
+  mp.players[1].emoji ||= "🎶";
+}
+function playerName(o) { return mp.players[o].name || `Jogador ${o + 1}`; }
+
+function buildEmojiRows() {
+  document.querySelectorAll("#mp-setup .mp-player").forEach((pl) => {
+    const o = +pl.dataset.p;
+    const row = pl.querySelector(".mp-emoji-row");
+    row.innerHTML = "";
+    MP_EMOJIS.forEach((e) => {
+      const b = document.createElement("button");
+      b.className = "mp-emoji" + (mp.players[o].emoji === e ? " sel" : "");
+      b.textContent = e;
+      b.onclick = () => {
+        mp.players[o].emoji = e;
+        row.querySelectorAll(".mp-emoji").forEach((x) => x.classList.toggle("sel", x.textContent === e));
+      };
+      row.appendChild(b);
+    });
+    pl.querySelector(".mp-name-in").value = mp.players[o].name;
+  });
+}
+
+function openMpSetup() {
+  loadMpPlayers();
+  buildEmojiRows();
+  document.querySelectorAll(".mp-mode-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.mode === mp.mode));
+  $("mp-setup").hidden = false;
+}
+$("mp-toggle").onclick = openMpSetup;
+$("mp-setup-cancel").onclick = () => { $("mp-setup").hidden = true; };
+document.querySelectorAll(".mp-mode-btn").forEach((b) => {
+  b.onclick = () => {
+    mp.mode = b.dataset.mode;
+    document.querySelectorAll(".mp-mode-btn").forEach((x) => x.classList.toggle("active", x === b));
+  };
+});
+$("mp-start").onclick = () => {
+  document.querySelectorAll("#mp-setup .mp-player").forEach((pl) => {
+    mp.players[+pl.dataset.p].name = pl.querySelector(".mp-name-in").value.trim();
+  });
+  localStorage.setItem("mp:players", JSON.stringify(mp.players));
+  mp.armed = true;
+  $("mp-setup").hidden = true;
+  const label = mp.mode === "duelo" ? "⚔️ Duelo" : "🎶 Dueto";
+  const sep = mp.mode === "duelo" ? "vs" : "+";
+  $("mp-banner-text").textContent =
+    `${label}: ${mp.players[0].emoji} ${playerName(0)} ${sep} ${mp.players[1].emoji} ${playerName(1)}`;
+  $("mp-banner").hidden = false;
+  toast("modo 2 jogadores armado — escolha a música 🎵");
+};
+$("mp-cancel").onclick = () => { mp.armed = false; $("mp-banner").hidden = true; };
+
+// revezamento das frases por verso: troca de cantor num silêncio > 2,5s ou a
+// cada 6 frases seguidas (pra ninguém cantar a música inteira sozinho)
+function assignOwners() {
+  mp.owner = [];
+  if (!mp.active || !lyrLines.length) return;
+  let turn = 0, run = 0;
+  for (let i = 0; i < lyrLines.length; i++) {
+    if (i > 0) {
+      const prev = lyrLines[i - 1];
+      const gap = lyrLines[i].t - (prev.end ?? prev.t);
+      if (gap > 2.5 || run >= 6) { turn ^= 1; run = 0; }
+    }
+    mp.owner[i] = turn;
+    lyrLines[i].el.dataset.owner = turn;
+    run++;
+  }
+}
+
+function startMultiplayer() {
+  mp.active = true;
+  mp.armed = false;
+  mp.totals = [0, 0]; mp.maxes = [0, 0]; mp.results = [[], []];
+  $("mp-banner").hidden = true;
+  $("score-chip").hidden = true;
+  $("mp-scores").hidden = false;
+  for (const o of [0, 1]) {
+    const chip = $(`mp-chip-${o}`);
+    chip.querySelector(".mpc-name").textContent = `${mp.players[o].emoji} ${playerName(o)}`;
+    chip.querySelector("b").textContent = "0";
+  }
+  if (!score.enabled) enableMic().catch(() => {}); // pontuação exige mic
+}
+
+function stopMultiplayer() {
+  mp.active = false;
+  $("mp-scores").hidden = true;
+  $("turn-indic").hidden = true;
+}
+
+function updateMpChips() {
+  for (const o of [0, 1]) {
+    $(`mp-chip-${o}`).querySelector("b").textContent = mp.totals[o].toLocaleString("pt-BR");
+  }
+}
+
+function updateTurnIndicator(idx) {
+  const el = $("turn-indic");
+  const li = Math.min(Math.max(idx >= 0 ? idx : score.nextToScore, 0), mp.owner.length - 1);
+  const o = mp.owner[li] ?? 0;
+  el.className = "turn-indic p" + o;
+  el.textContent = `🎤 ${mp.players[o].emoji} ${playerName(o)}`;
+  el.hidden = false;
+  $("mp-chip-0").classList.toggle("turn", o === 0);
+  $("mp-chip-1").classList.toggle("turn", o === 1);
+}
+
+function pctToGrade(pct) {
+  return pct >= 93 ? "S" : pct >= 82 ? "A" : pct >= 68 ? "B" :
+         pct >= 50 ? "C" : pct >= 30 ? "D" : "E";
+}
+
+function showMpResults() {
+  $("res-single").hidden = true;
+  $("res-mp").hidden = false;
+  for (const o of [0, 1]) {
+    const p = mp.players[o], t = mp.totals[o], m = mp.maxes[o] || 0;
+    const g = m ? pctToGrade((t / m) * 100) : "—";
+    const side = $(`res-mp-p${o}`);
+    side.classList.remove("win");
+    side.innerHTML =
+      `<div class="mp-emoji">${p.emoji}</div>` +
+      `<div class="mp-name">${playerName(o)}</div>` +
+      `<div class="mp-pts">${t.toLocaleString("pt-BR")}</div>` +
+      `<div class="mp-grade grade-${g}">${g}</div>`;
+  }
+  if (mp.mode === "dueto") {
+    $("res-mp-title").textContent = "Dueto 🎶";
+    const tot = mp.totals[0] + mp.totals[1], max = mp.maxes[0] + mp.maxes[1];
+    $("res-mp-verdict").textContent = max
+      ? `Juntos: ${tot.toLocaleString("pt-BR")} pontos — nota ${pctToGrade((tot / max) * 100)}! 🎉`
+      : "cadê a voz? 🎤";
+  } else {
+    $("res-mp-title").textContent = "Duelo ⚔️";
+    const d = mp.totals[0] - mp.totals[1];
+    if (d === 0) {
+      $("res-mp-verdict").textContent = "Empate! 🤝";
+    } else {
+      const w = d > 0 ? 0 : 1;
+      $(`res-mp-p${w}`).classList.add("win");
+      $("res-mp-verdict").textContent =
+        `${mp.players[w].emoji} ${playerName(w)} venceu por ${Math.abs(d).toLocaleString("pt-BR")}!`;
+    }
+  }
+  $("res-next").hidden = true;
+  $("results").hidden = false;
+}
+
+loadMpPlayers();
+
 // busca a letra logo após adicionar: o badge de dificuldade aparece no card
 // em segundos, sem esperar o pipeline chegar na etapa de alinhamento
 async function warmLyrics(song) {
@@ -1056,6 +1242,8 @@ function tick() {
     }
   }
 
+  if (mp.active) updateTurnIndicator(idx);
+
   // contagem regressiva antes da primeira linha e em pausas longas
   const next = lyrLines[idx + 1];
   const cd = $("countdown");
@@ -1126,7 +1314,10 @@ async function openPlayer(song) {
       .then((p) => { if (current === song) score.ref = p; })
       .catch(() => {});
   }
-  if (localStorage.getItem("mic:pref") === "1" && !score.enabled) {
+  // multiplayer armado -> inicia dueto/duelo; senão garante modo single
+  if (mp.armed && useStems) startMultiplayer();
+  else stopMultiplayer();
+  if (!mp.active && localStorage.getItem("mic:pref") === "1" && !score.enabled) {
     enableMic().catch(() => {});
   }
 
@@ -1165,6 +1356,7 @@ async function openPlayer(song) {
 
   setDiffBadge(song.lyrics);
   renderLyrics(song.lyrics);
+  if (mp.active) assignOwners();
   if (!song.lyrics) {
     $("fallback-msg").textContent = "Buscando a letra…";
     $("lyrics-fallback").hidden = false;
@@ -1189,6 +1381,7 @@ function closePlayer() {
   enginePause();
   stopSources();
   disableMic();
+  stopMultiplayer();
   $("results").hidden = true;
   $("score-chip").hidden = true;
   $("player-menu").hidden = true;

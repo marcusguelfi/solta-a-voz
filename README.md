@@ -52,6 +52,21 @@ fones dão pontuação mais precisa). A cada frase da letra:
 
 Pontuação usa a melodia extraída da voz original (`pitch.json`) como gabarito.
 
+## Dueto & Duelo (2 jogadores, local) 👥
+
+Botão **👥 dueto & duelo** na biblioteca abre o setup: escolha o modo e dê
+nome + emoji pros dois jogadores. Aí é só escolher a música — as frases da letra
+se **revezam por verso** entre os dois (cada linha ganha a cor do seu dono), e
+você passa o microfone na vez de cada um.
+
+- **⚔️ Duelo** — competição: cada frase pontua pro seu dono, dois placares na
+  tela, e no fim sai o **vencedor** (ou empate).
+- **🎶 Dueto** — cooperativo: mesma divisão de frases, mas o placar é
+  **combinado** — a nota final é de vocês dois juntos.
+
+Um microfone só (passa de mão em mão). Precisa de música preparada (a pontuação
+usa a melodia de referência).
+
 ## Fila da festa 🎶
 
 No hover do card, o botão **➕** joga a música numa fila. A barra de fila no topo
