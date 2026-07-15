@@ -150,6 +150,13 @@ def test_clamp_ends_to_voice_preserva_nota_longa(monkeypatch):
     assert lines[0]["end"] == 13.0
 
 
+def test_clamp_sem_energia_nao_faz_nada(monkeypatch):
+    monkeypatch.setattr(main, "load_pitch", lambda sid: None)
+    lines = [{"t": 0.0, "end": 30.0, "text": "x"}]
+    assert main.clamp_ends_to_voice("x", lines) == 0
+    assert lines[0]["end"] == 30.0
+
+
 def test_detect_vocal_onset(tmp_path):
     import numpy as np
     import soundfile as sf
@@ -163,3 +170,70 @@ def test_detect_vocal_onset(tmp_path):
     onset = main.detect_vocal_onset(wav)
     assert onset is not None
     assert 0.8 <= onset <= 1.3
+
+
+# ---------------------------------------------------------------- progresso / helpers
+
+def test_with_progress_estima_por_estagio():
+    import time as _t
+    entry = {"status": "separating", "stageAt": _t.time() - 10, "duration": 100}
+    out = main._with_progress(entry)
+    lo, hi, _ = main.STAGE_PROGRESS["separating"]
+    assert lo <= out["progress"] < hi
+
+
+def test_with_progress_ready_sem_barra():
+    out = main._with_progress({"status": "ready", "stems": True})
+    assert "progress" not in out
+
+
+def test_dificuldade_medio():
+    lines = "\n".join(
+        f"[00:{i * 4:05.2f}] uma duas tres quatro cinco seis" for i in range(10))
+    d = main.compute_difficulty(lines, duration=45)
+    assert d["label"] == "Médio"
+
+
+def test_clean_search_title_colchetes_e_feat():
+    assert main.clean_search_title("Song [Official Video] (feat. X)") == "Song"
+    assert main.clean_search_title("Título ft. Alguém") == "Título"
+
+
+# ---------------------------------------------------------------- alinhamento (helpers)
+
+class _Word:
+    def __init__(self, start, end):
+        self.start, self.end = start, end
+
+
+class _Seg:
+    def __init__(self, words):
+        self.words = words
+
+
+class _Res:
+    def __init__(self, segments):
+        self.segments = segments
+
+
+def test_regroup_words_to_lines():
+    words = [_Word(0, 1), _Word(1, 2), _Word(3, 4), _Word(4, 5)]
+    res = _Res([_Seg(words)])
+    spans = main._regroup_words_to_lines(res, ["oi mundo", "tudo bem"])
+    assert spans == [(0.0, 2.0), (3.0, 5.0)]
+
+
+def test_regroup_falha_se_contagem_nao_bate():
+    res = _Res([_Seg([_Word(0, 1)])])
+    assert main._regroup_words_to_lines(res, ["duas palavras"]) is None
+
+
+def test_interpolate_bad_lines_estima_entre_ancoras():
+    lines = [
+        {"t": 10.0, "end": 12.0, "text": "a", "_ok": True},
+        {"t": 0.0, "end": 0.0, "text": "b", "_ok": False},
+        {"t": 30.0, "end": 32.0, "text": "c", "_ok": True},
+    ]
+    main._interpolate_bad_lines(lines, good=[0, 2])
+    assert 12.0 < lines[1]["t"] < 30.0
+    assert all("_ok" not in ln for ln in lines)  # a flag interna é consumida

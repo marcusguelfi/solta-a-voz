@@ -206,8 +206,44 @@ library.json. Depois: festa LAN → duelo online.
    ready-check + contagem, placar ao vivo por frase. Latência irrelevante
    (áudio local). ~3-4 sessões.
 
+## Gotchas de desenvolvimento (workflow — economizam tempo)
+
+- **Screenshot do preview trava** quando o player está tocando (loop
+  requestAnimationFrame + canvas do pitch lane). Não insista no screenshot —
+  valide via `javascript_tool` (ler estado: `engine.playing`, `lyrLines`,
+  `score.ref`, contar pixels do canvas) e `read_console_messages`. Isso é
+  autoritativo. Se precisar de screenshot, `enginePause()` + `closePlayer()` antes.
+- **PowerShell 5.1 + `git commit -m`**: here-string com parênteses/aspas quebra
+  (vira pathspec). Escreva a mensagem num arquivo e use `git commit -F arquivo`.
+- **Body JSON via curl no PowerShell**: `Out-File` grava UTF-8 **com BOM** e o
+  FastAPI rejeita. Use `[System.IO.File]::WriteAllText(path, json)` (sem BOM) e
+  `curl --data-binary "@arquivo"`. Ou PATCH/POST direto de outro jeito.
+- **Preview cai entre sessões**: `preview_start` de novo; a `library.json` é lida
+  fresca a cada request, então editar o arquivo direto (scripts) reflete no ato.
+- **Aplicar fix retroativo sem re-rodar Whisper**: muita coisa opera só sobre
+  `lyrics.lines` + `pitch.json` (ex.: clamp de tails). Um script que carrega a
+  lib, chama a função e reescreve `synced`/`lines` conserta a biblioteca toda em
+  segundos, em vez de ~2,5min de Whisper por música.
+- **`javascript_tool` mantém escopo entre chamadas** — não redeclare `const out`
+  duas vezes (dá "already declared"); use nomes diferentes ou `var`.
+
+## Validação (2026-07-14) — baseline verde
+
+- `pytest tests -q`: **23 testes** (metadata, LRC, dificuldade Fácil/Médio/Expert,
+  correlação, reconcile, clamp com/sem energia/nota longa, onset, progresso,
+  regroup, interpolate). Rodar antes de entregar mudança no servidor.
+- `audit.py` (sem id): 10 músicas, todas ~100% saudáveis (98% quando têm avisos
+  legítimos: crams de rap, nota final sumindo).
+- API smoke (servidor local): /pitch /stems /audio /lyrics = 200; /cover = 307
+  (redirect thumb); Range = 206 + `no-store`; sid/stem inválidos = 404.
+- Browser E2E: detectPitch (220Hz→220,3; silêncio→null), tolerância de oitava
+  (mesma/oitava=0, 1 semitom=1), fila (chips+auto-avanço), player (stems tocando,
+  pitch ref, 30 linhas, lane desenhando ~1550px), zero erros no console.
+
 ## Convenções
 
 - UI e comentários em **PT-BR**; sem frameworks JS; sem build step.
 - Commits SEM assinatura do Claude (pedido do Marcus).
 - Testar mudança de player no preview antes de entregar (ver launch.json).
+- Ao adicionar função pura ao pipeline, **adicione um teste** em
+  `tests/test_core.py` (importa com `KARAOKE_NO_WORKER=1`, sem modelos pesados).
