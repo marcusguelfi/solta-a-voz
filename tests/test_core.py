@@ -173,6 +173,15 @@ def test_transcript_is_reliable_pega_lixo():
     assert not main.transcript_is_reliable("a little bit of " * 12)
 
 
+def test_vocal_start_pula_intro():
+    hop = 0.032
+    # 8s de intro instrumental (silêncio no stem de voz) + canto a partir de 8s
+    energy = [0] * int(8 / hop) + [1] * int(4 / hop)
+    start = main.vocal_start_from_energy(energy, hop)
+    assert 6.0 < start < 8.0        # começa ~1,5s antes do onset (pula o intro)
+    assert main.vocal_start_from_energy([], hop) == 0.0
+
+
 def test_guess_language_pt_en_es():
     assert main.guess_language("una noche con los amigos por la calle muy bonita pero") == "es"
     assert main.guess_language("you and the love that you do with my heart") == "en"

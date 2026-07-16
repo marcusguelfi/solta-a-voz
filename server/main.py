@@ -554,6 +554,19 @@ def transcript_is_reliable(transcript: str | None) -> bool:
     return len(set(words)) / len(words) >= 0.30  # diversidade: loop = baixa
 
 
+def vocal_start_from_energy(energy: list, hop: float, sustain: float = 0.5) -> float:
+    """Início do canto: 1º trecho com voz sustentada (>= sustain segundos). Pra
+    transcrição começar DEPOIS do intro instrumental, onde o Whisper alucina."""
+    if not energy:
+        return 0.0
+    need, run = max(1, int(sustain / hop)), 0
+    for k, v in enumerate(energy):
+        run = run + 1 if v else 0
+        if run >= need:
+            return max(0.0, (k - need) * hop - 1.5)  # 1,5s de folga antes
+    return 0.0
+
+
 def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110,
                       language: str | None = None) -> str | None:
     """Transcreve o stem de voz (Whisper transcribe, NÃO align) — o que está
@@ -574,13 +587,17 @@ def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110,
     vocals = STEMS / sid / "vocals.mp3"
     if not vocals.exists():
         return None
-    # clipa os primeiros max_seconds (ffmpeg) pra transcrição rápida
+    # clipa max_seconds A PARTIR DO ONSET DO CANTO — pular o intro instrumental
+    # (piano/silêncio) mata a alucinação do Whisper na raiz, além de acelerar
+    pitch = load_pitch(sid)
+    start = vocal_start_from_energy((pitch or {}).get("energy"), (pitch or {}).get("hop", 0.032))
     clip = STEMS / sid / "_vclip.mp3"
     src = vocals
     ffmpeg = FFMPEG_BIN / "ffmpeg.exe"
     try:
         subprocess.run([str(ffmpeg) if ffmpeg.exists() else "ffmpeg", "-y",
-                        "-t", str(max_seconds), "-i", str(vocals), str(clip)],
+                        "-ss", str(round(start, 2)), "-t", str(max_seconds),
+                        "-i", str(vocals), str(clip)],
                        capture_output=True, check=True)
         src = clip
     except Exception:
