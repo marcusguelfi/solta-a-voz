@@ -225,17 +225,23 @@ transcrição vira letra de último recurso se nenhum candidato bater.
   substitui o heurístico guess_language no align (lib tem PT/EN/ES).
 
 **Falsos positivos da verificação (SEMPRE inspecionar suspeita antes de refixar):**
-A transcrição do Whisper falha de 3 jeitos que dariam falsa "letra suspeita" —
-`transcript_is_reliable` guarda os 3, e uma suspeita 0.00 quase sempre é falso:
+A transcrição do Whisper falha de 4 jeitos que dariam falsa "letra suspeita" —
+`transcript_is_reliable` guarda os 4. Numa varredura de 50: das 4 "suspeitas", 2
+eram Whisper falhando (falso), 2 reais. **Suspeita 0.00 quase sempre é falso.**
 1. **Idioma errado** → lixo não-latino (cingalês). Guard: `_latin_ratio > 0.6`.
    Caso: Placebo "Running Up That Hill" (0.00 → 0.89 com dica de idioma).
 2. **Alucinação em loop** em intro/silêncio → "a little bit of a little bit of..."
    Guard: diversidade `únicos/total >= 0.30`. Caso: Vanessa Carlton "A Thousand
-   Miles" (intro de piano longo).
-3. **Sem stems/transcrição** → não verificável.
-   → Sempre dar dica de idioma (`guess_language(letra)`) e checar reliability.
-   Suspeita REAL confirmada: Tianastácia (LRCLIB devolve "Fora de Controle" pra
-   vários títulos da banda).
+   Miles" (intro de piano) → resolvido de vez pelo **onset-clip** (transcrição
+   começa no canto, `vocal_start_from_energy`, pula o intro).
+3. **Idioma fora de PT/EN/ES** (alemão) → o `base` misdetecta pra "pt" mesmo sem
+   hint e cospe salada latina com cirílico/CJK (скоро/かな). Guard: qualquer char
+   `>= 0x370` = não confiável. `guess_language` retorna None se incerto (auto-detect).
+   Caso: Rammstein "Waidmanns Heil".
+4. **Sem stems/transcrição** → não verificável.
+   → Sempre dar dica de idioma e checar reliability. Suspeita REAL: música com
+   título vago ("Tema de Abertura") que o LRCLIB casa por texto do título com
+   outra (Jota Quest "Minha Estrela"). Fix: `refix.py`, ou buscar pela transcrição.
 - Verificação usa modelo **"base"** (rápido, identidade não precisa de precisão);
   alinhamento continua "small". `server/refix.py` re-conserta suspeitas reais.
 - Log da varredura: `data/scan_log.txt`. audit.py `--verify` transcreve tudo
