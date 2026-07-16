@@ -525,12 +525,17 @@ def _latin_ratio(text: str) -> float:
 
 
 def transcript_is_reliable(transcript: str | None) -> bool:
-    """Transcrição confiável = alfabeto latino e conteúdo suficiente. O Whisper às
-    vezes detecta idioma errado e cospe lixo (ex.: cingalês) — que daria falsa
-    'letra suspeita'. Nesses casos NÃO verificamos, em vez de acusar errado."""
+    """Transcrição confiável = alfabeto latino, conteúdo suficiente e DIVERSA. O
+    Whisper falha de dois jeitos que dariam falsa 'letra suspeita':
+    1) idioma errado -> lixo não-latino (ex.: cingalês);
+    2) ALUCINAÇÃO em loop em intro/silêncio -> 'a little bit of a little bit of...'
+       (poucas palavras repetidas). Nesses casos NÃO verificamos, não acusamos."""
     if not transcript:
         return False
-    return _latin_ratio(transcript) > 0.6 and len(_norm_words(transcript)) >= 8
+    words = _norm_words(transcript)
+    if len(words) < 8 or _latin_ratio(transcript) <= 0.6:
+        return False
+    return len(set(words)) / len(words) >= 0.30  # diversidade: loop = baixa
 
 
 def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110,

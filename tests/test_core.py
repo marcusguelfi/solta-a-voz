@@ -169,6 +169,8 @@ def test_transcript_is_reliable_pega_lixo():
     assert not main.transcript_is_reliable("සිවිවිවිවිවිවිවිවිවිවිවිවිවි")  # lixo não-latino
     assert not main.transcript_is_reliable("")
     assert not main.transcript_is_reliable("uma duas tres")  # curto demais
+    # alucinação em loop do Whisper (A Thousand Miles no intro de piano)
+    assert not main.transcript_is_reliable("a little bit of " * 12)
 
 
 def test_guess_language_pt_en_es():
