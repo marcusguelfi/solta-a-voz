@@ -548,6 +548,10 @@ def transcript_is_reliable(transcript: str | None) -> bool:
        (poucas palavras repetidas). Nesses casos NÃO verificamos, não acusamos."""
     if not transcript:
         return False
+    # scripts estrangeiros (cirílico/grego/CJK) = Whisper confuso com o idioma,
+    # mesmo que a maioria seja latina (caso Rammstein: alemão vira salada com скоро/かな)
+    if any(ord(c) >= 0x370 for c in transcript):
+        return False
     words = _norm_words(transcript)
     if len(words) < 8 or _latin_ratio(transcript) <= 0.6:
         return False

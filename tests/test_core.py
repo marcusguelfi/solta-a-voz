@@ -171,6 +171,8 @@ def test_transcript_is_reliable_pega_lixo():
     assert not main.transcript_is_reliable("uma duas tres")  # curto demais
     # alucinação em loop do Whisper (A Thousand Miles no intro de piano)
     assert not main.transcript_is_reliable("a little bit of " * 12)
+    # salada de scripts (Rammstein alemão): latina na maioria mas com cirílico/CJK
+    assert not main.transcript_is_reliable("eu tenho um nehe ja surgiu скоро kendim かな clinic")
 
 
 def test_vocal_start_pula_intro():
