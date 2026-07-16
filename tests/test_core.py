@@ -164,6 +164,19 @@ def test_norm_words():
     assert main._norm_words("Coração, é VOCÊ!") == ["coracao", "e", "voce"]
 
 
+def test_transcript_is_reliable_pega_lixo():
+    assert main.transcript_is_reliable("it doesnt hurt me do you want to feel how it feels")
+    assert not main.transcript_is_reliable("සිවිවිවිවිවිවිවිවිවිවිවිවිවි")  # lixo não-latino
+    assert not main.transcript_is_reliable("")
+    assert not main.transcript_is_reliable("uma duas tres")  # curto demais
+
+
+def test_guess_language_pt_en_es():
+    assert main.guess_language("una noche con los amigos por la calle muy bonita pero") == "es"
+    assert main.guess_language("you and the love that you do with my heart") == "en"
+    assert main.guess_language("você não sabe o que eu sinto pra mim mais uma vez") == "pt"
+
+
 def test_lyric_similarity_transcricao_parcial_nao_pune_letra_longa():
     # transcrição cobre só o começo; a letra é longa. Precisão (não recall) segura.
     letra_longa = " ".join(f"palavra{i} conteudo{i}" for i in range(40))

@@ -276,9 +276,10 @@ def verify_lyrics(sid: str, entry: dict) -> float | None:
     if not text.strip():
         print("  [verify] sem letra pra verificar")
         return None
-    transcript = main.transcribe_vocals(sid)
-    if not transcript:
-        print("  [verify] sem transcrição (stems ausentes?)")
+    # dica de idioma pela letra evita transcrição-lixo (idioma errado)
+    transcript = main.transcribe_vocals(sid, language=main.guess_language(text))
+    if not main.transcript_is_reliable(transcript):
+        print("  [verify] transcrição não confiável (idioma?) — não verificável")
         return None
     sim = main.lyric_similarity(text, transcript)
     tag = "✅ letra confere" if sim >= SUSPECT_SIM else "⚠️  LETRA SUSPEITA — provável música errada"

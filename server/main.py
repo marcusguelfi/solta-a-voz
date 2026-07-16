@@ -449,10 +449,15 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
 
     duration = entry.get("duration") or 0
     # transcrição do canto real: o sinal que diz se a letra é da MÚSICA CERTA
-    # (correlação só mede timing; letra errada com canto denso ainda correlaciona)
+    # (correlação só mede timing; letra errada com canto denso ainda correlaciona).
+    # Dica de idioma pelo texto dos candidatos evita transcrição-lixo (idioma errado).
     transcript = None
+    hint = guess_language(" ".join(c.get("plainLyrics") or c["syncedLyrics"]
+                                   for c in candidates[:3])) if candidates else None
     try:
-        transcript = transcribe_vocals(sid)
+        transcript = transcribe_vocals(sid, language=hint)
+        if not transcript_is_reliable(transcript):
+            transcript = None  # transcrição-lixo: cai pra correlação, não enviesa
     except Exception:
         logging.exception("transcrição falhou pra %s", sid)
     best = None
@@ -512,7 +517,24 @@ def _norm_words(text: str) -> list[str]:
     return t.split()
 
 
-def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110) -> str | None:
+def _latin_ratio(text: str) -> float:
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return 0.0
+    return sum(1 for c in letters if ord(c) < 0x250) / len(letters)
+
+
+def transcript_is_reliable(transcript: str | None) -> bool:
+    """Transcrição confiável = alfabeto latino e conteúdo suficiente. O Whisper às
+    vezes detecta idioma errado e cospe lixo (ex.: cingalês) — que daria falsa
+    'letra suspeita'. Nesses casos NÃO verificamos, em vez de acusar errado."""
+    if not transcript:
+        return False
+    return _latin_ratio(transcript) > 0.6 and len(_norm_words(transcript)) >= 8
+
+
+def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110,
+                      language: str | None = None) -> str | None:
     """Transcreve o stem de voz (Whisper transcribe, NÃO align) — o que está
     REALMENTE sendo cantado. Cacheado em stems/{id}/transcript.json. É a base da
     verificação: forced alignment encaixa qualquer texto, transcrição não mente.
@@ -522,7 +544,10 @@ def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110) -> 
     cache = STEMS / sid / "transcript.json"
     if cache.exists() and not force:
         try:
-            return json.loads(cache.read_text(encoding="utf-8")).get("text")
+            txt = json.loads(cache.read_text(encoding="utf-8")).get("text")
+            # cache lixo + temos dica de idioma -> re-transcreve com a dica
+            if txt and (language is None or transcript_is_reliable(txt)):
+                return txt
         except json.JSONDecodeError:
             pass
     vocals = STEMS / sid / "vocals.mp3"
@@ -541,9 +566,11 @@ def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110) -> 
         pass
     model = _get_whisper()
     try:
-        result = model.transcribe(str(src), word_timestamps=False, suppress_silence=False)
+        # dica de idioma evita o Whisper "viajar" pra um idioma exótico e cuspir lixo
+        result = model.transcribe(str(src), language=language,
+                                  word_timestamps=False, suppress_silence=False)
         text = result.text or ""
-        lang = getattr(result, "language", None)  # detecção de idioma de graça
+        lang = language or getattr(result, "language", None)
     except Exception:
         logging.exception("transcrição falhou pra %s", sid)
         return None
@@ -582,11 +609,15 @@ def lyric_similarity(lyrics_text: str, transcript: str) -> float:
 
 def guess_language(text: str) -> str:
     t = f" {re.sub(r'[^a-zà-úç ]', ' ', text.lower())} "
-    pt = sum(t.count(w) for w in (" que ", " não ", " nao ", " você ", " voce ",
-                                  " meu ", " minha ", " pra ", " mais ", " eu ", " são "))
-    en = sum(t.count(w) for w in (" the ", " you ", " and ", " love ", " that ",
-                                  " this ", " it ", " of ", " my "))
-    return "pt" if pt >= en else "en"
+    scores = {
+        "pt": sum(t.count(w) for w in (" não ", " nao ", " você ", " voce ", " meu ",
+                                       " minha ", " pra ", " mais ", " eu ", " são ", " uma ")),
+        "en": sum(t.count(w) for w in (" the ", " you ", " and ", " love ", " that ",
+                                       " this ", " it ", " of ", " my ", " to ", " with ")),
+        "es": sum(t.count(w) for w in (" los ", " las ", " una ", " con ", " por ", " muy ",
+                                       " pero ", " estoy ", " corazón ", " mi ", " tú ", " esta ")),
+    }
+    return max(scores, key=scores.get)
 
 
 def _regroup_words_to_lines(result, line_texts: list[str]) -> list[tuple[float, float]] | None:
