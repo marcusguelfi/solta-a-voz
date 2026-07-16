@@ -186,6 +186,8 @@ def test_guess_language_pt_en_es():
     assert main.guess_language("una noche con los amigos por la calle muy bonita pero") == "es"
     assert main.guess_language("you and the love that you do with my heart") == "en"
     assert main.guess_language("você não sabe o que eu sinto pra mim mais uma vez") == "pt"
+    # alemão (fora de PT/EN/ES) -> None: Whisper auto-detecta em vez de forçar errado
+    assert main.guess_language("Ich bin in Hitze schon seit Tagen so werd ich mir") is None
 
 
 def test_lyric_similarity_transcricao_parcial_nao_pune_letra_longa():

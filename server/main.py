@@ -578,9 +578,10 @@ def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110,
     cache = STEMS / sid / "transcript.json"
     if cache.exists() and not force:
         try:
-            txt = json.loads(cache.read_text(encoding="utf-8")).get("text")
-            # cache lixo + temos dica de idioma -> re-transcreve com a dica
-            if txt and (language is None or transcript_is_reliable(txt)):
+            data = json.loads(cache.read_text(encoding="utf-8"))
+            txt, prev_hint = data.get("text"), data.get("hint", "__old__")
+            # reusa se confiável, ou se já tentamos EXATAMENTE esta dica (não readianta)
+            if txt and (transcript_is_reliable(txt) or prev_hint == language):
                 return txt
         except json.JSONDecodeError:
             pass
@@ -614,7 +615,8 @@ def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110,
         return None
     finally:
         clip.unlink(missing_ok=True)
-    cache.write_text(json.dumps({"text": text, "language": lang}), encoding="utf-8")
+    cache.write_text(json.dumps({"text": text, "language": lang, "hint": language}),
+                     encoding="utf-8")
     return text
 
 
@@ -645,7 +647,9 @@ def lyric_similarity(lyrics_text: str, transcript: str) -> float:
     return round(hit / len(tw), 3)
 
 
-def guess_language(text: str) -> str:
+def guess_language(text: str) -> str | None:
+    """PT/EN/ES por palavras-marca. Retorna None se INCERTO (ex.: alemão) — aí o
+    Whisper auto-detecta, em vez de forçar um idioma errado e gerar transcrição-lixo."""
     t = f" {re.sub(r'[^a-zà-úç ]', ' ', text.lower())} "
     scores = {
         "pt": sum(t.count(w) for w in (" não ", " nao ", " você ", " voce ", " meu ",
@@ -655,7 +659,8 @@ def guess_language(text: str) -> str:
         "es": sum(t.count(w) for w in (" los ", " las ", " una ", " con ", " por ", " muy ",
                                        " pero ", " estoy ", " corazón ", " mi ", " tú ", " esta ")),
     }
-    return max(scores, key=scores.get)
+    best = max(scores, key=scores.get)
+    return best if scores[best] >= 2 else None  # incerto -> deixa o Whisper decidir
 
 
 def _regroup_words_to_lines(result, line_texts: list[str]) -> list[tuple[float, float]] | None:
