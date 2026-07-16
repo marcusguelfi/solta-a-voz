@@ -491,6 +491,52 @@ def _get_whisper():
         return _whisper_model
 
 
+def _norm_words(text: str) -> list[str]:
+    import unicodedata
+
+    t = unicodedata.normalize("NFD", (text or "").lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    t = re.sub(r"[^a-z0-9\s]", " ", t)
+    return t.split()
+
+
+def transcribe_vocals(sid: str, force: bool = False) -> str | None:
+    """Transcreve o stem de voz (Whisper transcribe, NÃO align) — o que está
+    REALMENTE sendo cantado. Cacheado em stems/{id}/transcript.json. É a base da
+    verificação: forced alignment encaixa qualquer texto, transcrição não mente."""
+    cache = STEMS / sid / "transcript.json"
+    if cache.exists() and not force:
+        try:
+            return json.loads(cache.read_text(encoding="utf-8")).get("text")
+        except json.JSONDecodeError:
+            pass
+    vocals = STEMS / sid / "vocals.mp3"
+    if not vocals.exists():
+        return None
+    model = _get_whisper()
+    try:
+        result = model.transcribe(str(vocals), suppress_silence=True)
+        text = result.text or ""
+    except Exception:
+        logging.exception("transcrição falhou pra %s", sid)
+        return None
+    cache.write_text(json.dumps({"text": text}), encoding="utf-8")
+    return text
+
+
+def lyric_similarity(lyrics_text: str, transcript: str) -> float:
+    """0..1: quanto a letra bate com a transcrição do canto real. Recall das
+    palavras de CONTEÚDO (len>=4) da letra presentes na transcrição — robusto a
+    erros do Whisper e reordenação, e ignora palavrinhas comuns que inflariam
+    música errada. Letra certa ~0.5-0.85; música errada ~<0.25."""
+    lw = [w for w in _norm_words(lyrics_text) if len(w) >= 4]
+    tw = {w for w in _norm_words(transcript) if len(w) >= 4}
+    if len(lw) < 5 or not tw:
+        return 0.0
+    hit = sum(1 for w in lw if w in tw)
+    return round(hit / len(lw), 3)
+
+
 def guess_language(text: str) -> str:
     t = f" {re.sub(r'[^a-zà-úç ]', ' ', text.lower())} "
     pt = sum(t.count(w) for w in (" que ", " não ", " nao ", " você ", " voce ",

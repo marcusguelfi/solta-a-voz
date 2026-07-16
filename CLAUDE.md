@@ -161,13 +161,48 @@ interrompidos por restart voltam pra fila no boot).
 - Próximo: festa LAN (celular como controle) → duelo online (relay WebSocket).
   Ver detalhes lá embaixo.
 
-### Prioridade 2 — Audit/alinhamento ainda mais robusto
-- ✅ (2026-07-13) detectar CANTO DESCOBERTO: energia vocal fora de qualquer
-  janela de frase (adlibs, vocalize, tail de versão diferente) — audit reporta.
-- Próximo: pro trecho descoberto, TRANSCREVER com Whisper e sugerir linhas
-  extras de letra (aprovação manual) — fecha os buracos do gráfico de tom.
-- Comparar com múltiplas fontes web (lyrics.ovh ✅, letras.mus.br/Vagalume) e
-  escolher o texto mais completo antes de alinhar.
+### Prioridade 2 — PRECISÃO DAS LETRAS (plano 2026-07-14, pedido do Marcus)
+
+**Problema real** (irmãs/tia baixaram ~70 músicas; 42 com letra): algumas letras
+"trocaram totalmente" = o LRCLIB devolveu a letra de OUTRA música. A causa raiz:
+`model.align(vocals, texto)` faz *forced alignment* — **encaixa QUALQUER texto** no
+áudio, mesmo o errado, gerando timing confiante porém lixo. O audit atual é
+energy-driven: mede se há VOZ em cada janela, mas NÃO se as PALAVRAS estão certas
+(letra errada forçada sobre canto real passa no audit). Por isso "ficou fora do
+tempo" E "letra trocada" convivem com status ready.
+
+**Solução: transcrever-então-verificar** (padrão de sistemas de lyric sync tipo
+AudioShake; confirmar fontes quando a web voltar — busca estava 529 nesta sessão):
+1. **Transcrever** o stem de voz com Whisper (`model.transcribe`, não `align`) →
+   o que está REALMENTE sendo cantado. Cache em `stems/{id}/transcript.json`.
+2. Buscar VÁRIOS candidatos de letra (LRCLIB search ≥8 + lyrics.ovh).
+3. Pontuar cada candidato por **similaridade fuzzy com a transcrição** (word-recall:
+   fração das palavras da letra que aparecem na transcrição — robusto a erros do
+   Whisper e reordenação; combinar com sequence ratio pra ordem).
+4. Escolher o melhor se score ≥ ~0.45; senão **flag "letra suspeita"** (não força
+   letra errada). Wrong song ~<0.25; certa 0.5-0.85 (transcrição de canto é imperfeita).
+5. Só então `align` na letra verificada.
+
+**Custo**: +1 passada de transcribe (~2min/música CPU) além do align. Cache deixa
+re-run grátis. Transcrever 1×, comparar todos os candidatos é barato (texto).
+
+**Rollout**:
+- Músicas novas: pipeline faz transcribe → verify → align.
+- 42 existentes: modo batch `audit.py --verify` transcreve cada (cacheia),
+  re-pontua a letra atual, flag as suspeitas. Re-buscar+re-alinhar só as flagadas.
+
+**Audit v4**: novo flag **LETRA SUSPEITA** (similaridade transcrição×letra <
+limiar) — o sinal de CORREÇÃO que faltava (o energy só via timing). Sinal barato
+secundário (sem Whisper extra): capturar a probabilidade média de palavra do
+`align` → `lyrics.alignConfidence`; baixa = suspeita.
+
+**Não-só-Whisper**: ranquear candidatos pela similaridade-ASR (não pela duração do
+LRCLIB); lyrics.ovh como 2ª fonte (futuro: letras.mus.br/Genius); a própria
+transcrição vira letra de último recurso se nenhum candidato bater.
+
+Feitos relacionados:
+- ✅ (2026-07-13) CANTO DESCOBERTO no audit (energia fora de frase).
+- ✅ (2026-07-14) hover mostra recorde por música no card.
 
 ### Prioridade 3 — UI do player
 - ✅ (2026-07-13) título realmente centralizado (grid 1fr/auto/1fr).

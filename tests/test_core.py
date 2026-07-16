@@ -150,6 +150,20 @@ def test_clamp_ends_to_voice_preserva_nota_longa(monkeypatch):
     assert lines[0]["end"] == 13.0
 
 
+def test_lyric_similarity_separa_certa_de_errada():
+    lyrics = "Agora eu era o herói e o meu cavalo só falava inglês guardava bodoque"
+    # transcrição imperfeita mas com as mesmas palavras de conteúdo
+    bom = "agora eu era heroi e meu cavalo so falava ingles ali guardava bodoque sim"
+    ruim = "yesterday all my troubles seemed so far away now it looks as though"
+    assert main.lyric_similarity(lyrics, bom) > 0.7
+    assert main.lyric_similarity(lyrics, ruim) < 0.2
+    assert main.lyric_similarity("", "qualquer coisa") == 0.0
+
+
+def test_norm_words():
+    assert main._norm_words("Coração, é VOCÊ!") == ["coracao", "e", "voce"]
+
+
 def test_is_playlist_url():
     assert main.is_playlist_url("https://www.youtube.com/playlist?list=PLabc")
     assert main.is_playlist_url("https://www.youtube.com/watch?v=X&list=PLabc")

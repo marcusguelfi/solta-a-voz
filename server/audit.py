@@ -203,12 +203,40 @@ def audit_song(sid: str, entry: dict) -> dict | None:
     return {"sid": sid, "ok": ok, "total": len(lines), "flags": flags_count}
 
 
+SUSPECT_SIM = 0.35  # similaridade letra×canto abaixo disso = letra provavelmente errada
+
+
+def verify_lyrics(sid: str, entry: dict) -> float | None:
+    """Transcreve o canto real (Whisper) e mede se a letra bate — pega letra de
+    OUTRA música que o forced alignment encaixaria mesmo assim."""
+    import os
+    os.environ["KARAOKE_NO_WORKER"] = "1"
+    sys.path.insert(0, str(BASE / "server"))
+    import main  # carrega Whisper só quando --verify é usado
+
+    lyr = entry.get("lyrics") or {}
+    text = "\n".join(l["text"] for l in lyr.get("lines") or []) or lyr.get("plain") or ""
+    if not text.strip():
+        print("  [verify] sem letra pra verificar")
+        return None
+    transcript = main.transcribe_vocals(sid)
+    if not transcript:
+        print("  [verify] sem transcrição (stems ausentes?)")
+        return None
+    sim = main.lyric_similarity(text, transcript)
+    tag = "✅ letra confere" if sim >= SUSPECT_SIM else "⚠️  LETRA SUSPEITA — provável música errada"
+    print(f"  [verify] similaridade letra×canto: {sim:.2f}  {tag}")
+    return sim
+
+
 def main():
     lib = json.loads((BASE / "data" / "library.json").read_text(encoding="utf-8"))
-    args = [a for a in sys.argv[1:] if a != "--web"]
+    flags = {"--web", "--verify"}
+    args = [a for a in sys.argv[1:] if a not in flags]
     with_web = "--web" in sys.argv
+    with_verify = "--verify" in sys.argv
     targets = args if args else list(lib.keys())
-    results = []
+    results, suspects = [], []
     for sid in targets:
         if sid not in lib:
             print(f"id {sid} não existe na biblioteca")
@@ -216,6 +244,10 @@ def main():
         r = audit_song(sid, lib[sid])
         if r and with_web:
             cross_check_web(lib[sid])
+        if r and with_verify:
+            sim = verify_lyrics(sid, lib[sid])
+            if sim is not None and sim < SUSPECT_SIM:
+                suspects.append((sid, sim))
         if r:
             results.append(r)
     if len(results) > 1:
@@ -224,6 +256,11 @@ def main():
             e = lib[r["sid"]]
             pct = round(100 * r["ok"] / r["total"])
             print(f"  {pct:3d}% saudável  {e.get('artist')} - {e.get('title')}")
+    if with_verify and suspects:
+        print("\n===== LETRAS SUSPEITAS (re-buscar/re-alinhar) =====")
+        for sid, sim in sorted(suspects, key=lambda x: x[1]):
+            e = lib[sid]
+            print(f"  sim {sim:.2f}  {sid}  {e.get('artist')} - {e.get('title')}")
 
 
 if __name__ == "__main__":

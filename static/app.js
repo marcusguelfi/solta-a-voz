@@ -735,6 +735,7 @@ function renderGrid() {
       <button class="card-del" title="Remover">✕</button>
       <button class="card-queue" title="Adicionar à fila da festa">➕</button>
       <button class="card-play" title="Cantar!">▶</button>
+      <div class="card-record" hidden></div>
       <div class="card-body">
         <div class="card-title"></div>
         <div class="card-artist"></div>
@@ -743,6 +744,10 @@ function renderGrid() {
       </div>`;
     card.querySelector(".card-title").textContent = song.title || "Sem título";
     card.querySelector(".card-artist").textContent = song.artist || "—";
+    const best = parseInt(localStorage.getItem("best:" + song.id) || "0");
+    const rec = card.querySelector(".card-record");
+    rec.textContent = best ? `🏆 recorde: ${best.toLocaleString("pt-BR")}` : "🏆 sem recorde — seja o 1º!";
+    rec.hidden = false;
     card.querySelector(".card-del").onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Remover "${song.title}" do repertório?`)) return;
