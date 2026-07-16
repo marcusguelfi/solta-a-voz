@@ -164,6 +164,47 @@ def test_norm_words():
     assert main._norm_words("Coração, é VOCÊ!") == ["coracao", "e", "voce"]
 
 
+def test_lyric_similarity_transcricao_parcial_nao_pune_letra_longa():
+    # transcrição cobre só o começo; a letra é longa. Precisão (não recall) segura.
+    letra_longa = " ".join(f"palavra{i} conteudo{i}" for i in range(40))
+    transcript = "palavra0 conteudo0 palavra1 conteudo1 palavra2 conteudo2"
+    # todas as palavras ouvidas estão na letra -> alta, mesmo cobrindo 15% da letra
+    assert main.lyric_similarity(letra_longa, transcript) > 0.9
+
+
+# ---- medição de PRECISÃO DE TIMING (início da linha vs onset real da frase) ----
+
+def _load_audit():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
+    import audit
+    return audit
+
+
+def test_phrase_onsets_detecta_inicios():
+    audit = _load_audit()
+    hop = 0.032
+    n = int(12 / hop)
+    active = [0] * n
+    for a, b in [(1.0, 2.0), (5.0, 6.0), (10.0, 11.0)]:  # 3 frases com silêncio entre
+        for k in range(int(a / hop), int(b / hop)):
+            active[k] = 1
+    onsets = audit.phrase_onsets(active, hop)
+    assert len(onsets) == 3
+    assert abs(onsets[0] - 1.0) < 0.05
+    assert abs(onsets[1] - 5.0) < 0.05
+    assert abs(onsets[2] - 10.0) < 0.05
+
+
+def test_timing_errors_mede_desvio():
+    audit = _load_audit()
+    onsets = [1.0, 5.0, 10.0]
+    # linha 0 quase no ponto, linha 1 no ponto, linha 2 atrasada 1s
+    errs = audit.timing_errors([{"t": 1.05}, {"t": 5.0}, {"t": 9.0}], onsets)
+    assert errs[0] < 0.1
+    assert errs[1] < 0.05
+    assert abs(errs[2] - 1.0) < 0.05
+
+
 def test_is_playlist_url():
     assert main.is_playlist_url("https://www.youtube.com/playlist?list=PLabc")
     assert main.is_playlist_url("https://www.youtube.com/watch?v=X&list=PLabc")

@@ -32,6 +32,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+# console do Windows (cp850/cp1252) engasga em ×, é, etc. — força UTF-8 na saída
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 BASE = Path(__file__).resolve().parent.parent
 STEMS = BASE / "data" / "stems"
 
@@ -50,6 +56,47 @@ def energy_envelope(vocals_path: Path):
     rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop)[0]
     thr = float(np.percentile(rms, 95)) * 0.15
     return (rms > thr).astype(float), hop / sr
+
+
+def phrase_onsets(active, e_hop: float, min_silence: float = 0.4) -> list[float]:
+    """Instantes (s) onde a voz COMEÇA depois de >= min_silence de silêncio —
+    ou seja, começos de frase. Ground-truth pra medir se o início da linha bate."""
+    gap = max(1, int(min_silence / e_hop))
+    onsets, silence = [], gap + 1  # começa "em silêncio" pra pegar o 1º onset
+    for k in range(len(active)):
+        if active[k]:
+            if silence >= gap:
+                onsets.append(round(k * e_hop, 3))
+            silence = 0
+        else:
+            silence += 1
+    return onsets
+
+
+def timing_errors(lines: list, onsets: list[float], max_match: float = 3.0) -> list[float]:
+    """Erro (s) do início da linha ao onset de frase mais próximo — SÓ pra linhas
+    que iniciam frase (silêncio antes) e têm onset plausível perto (<max_match).
+
+    Por que o filtro: em canto contínuo/rap há poucos silêncios detectáveis, então
+    linhas de fluxo casariam com onsets distantes = erro-fantasma de dezenas de
+    segundos. Medimos só o subconjunto VERIFICÁVEL (começos de frase), que é onde
+    'a letra tem que bater com o canto'. Retorna [] se nada é verificável."""
+    if not onsets:
+        return []
+    errs = []
+    for i, ln in enumerate(lines):
+        prev_end = lines[i - 1].get("end") or lines[i - 1]["t"] if i else -9
+        if i and (ln["t"] - prev_end) <= 0.8:  # fluxo contínuo: não dá pra verificar
+            continue
+        d = min(abs(ln["t"] - o) for o in onsets)
+        if d <= max_match:
+            errs.append(d)
+    return errs
+
+
+def _pctl(xs: list[float], p: float) -> float:
+    s = sorted(xs)
+    return s[min(len(s) - 1, int(len(s) * p))]
 
 
 def _norm_lines(text: str) -> list[str]:
@@ -196,11 +243,21 @@ def audit_song(sid: str, entry: dict) -> dict | None:
         else:
             k += 1
 
+    # PRECISÃO DE TIMING: início da linha vs onset real da frase (energia)
+    terrs = timing_errors(lines, phrase_onsets(active, e_hop))
+    tinfo = ""
+    if len(terrs) >= 3:
+        med, p90 = statistics.median(terrs), _pctl(terrs, 0.9)
+        mistimed = sum(1 for e in terrs if e > 0.6)
+        tinfo = (f" | timing (início de {len(terrs)} frases): mediana {med * 1000:.0f}ms, "
+                 f"p90 {p90 * 1000:.0f}ms{f', {mistimed} > 600ms' if mistimed else ''}")
+
     ok = len(lines) - sum(unhealthy)
     print(f"  -> {ok}/{len(lines)} frases saudáveis | "
           f"janela mediana {statistics.median(windows):.1f}s "
-          f"| flags: {', '.join(f'{k}={v}' for k, v in flags_count.items() if v) or 'nenhuma'}")
-    return {"sid": sid, "ok": ok, "total": len(lines), "flags": flags_count}
+          f"| flags: {', '.join(f'{k}={v}' for k, v in flags_count.items() if v) or 'nenhuma'}{tinfo}")
+    return {"sid": sid, "ok": ok, "total": len(lines), "flags": flags_count,
+            "timing_med": statistics.median(terrs) if terrs else None}
 
 
 SUSPECT_SIM = 0.35  # similaridade letra×canto abaixo disso = letra provavelmente errada

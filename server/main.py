@@ -512,10 +512,13 @@ def _norm_words(text: str) -> list[str]:
     return t.split()
 
 
-def transcribe_vocals(sid: str, force: bool = False) -> str | None:
+def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110) -> str | None:
     """Transcreve o stem de voz (Whisper transcribe, NÃO align) — o que está
     REALMENTE sendo cantado. Cacheado em stems/{id}/transcript.json. É a base da
-    verificação: forced alignment encaixa qualquer texto, transcrição não mente."""
+    verificação: forced alignment encaixa qualquer texto, transcrição não mente.
+
+    Otimizado pra IDENTIDADE (não display): sem timestamps de palavra e só os
+    primeiros ~110s — o bastante pra pegar letra totalmente trocada, ~4× mais rápido."""
     cache = STEMS / sid / "transcript.json"
     if cache.exists() and not force:
         try:
@@ -525,28 +528,56 @@ def transcribe_vocals(sid: str, force: bool = False) -> str | None:
     vocals = STEMS / sid / "vocals.mp3"
     if not vocals.exists():
         return None
+    # clipa os primeiros max_seconds (ffmpeg) pra transcrição rápida
+    clip = STEMS / sid / "_vclip.mp3"
+    src = vocals
+    ffmpeg = FFMPEG_BIN / "ffmpeg.exe"
+    try:
+        subprocess.run([str(ffmpeg) if ffmpeg.exists() else "ffmpeg", "-y",
+                        "-t", str(max_seconds), "-i", str(vocals), str(clip)],
+                       capture_output=True, check=True)
+        src = clip
+    except Exception:
+        pass
     model = _get_whisper()
     try:
-        result = model.transcribe(str(vocals), suppress_silence=True)
+        result = model.transcribe(str(src), word_timestamps=False, suppress_silence=False)
         text = result.text or ""
+        lang = getattr(result, "language", None)  # detecção de idioma de graça
     except Exception:
         logging.exception("transcrição falhou pra %s", sid)
         return None
-    cache.write_text(json.dumps({"text": text}), encoding="utf-8")
+    finally:
+        clip.unlink(missing_ok=True)
+    cache.write_text(json.dumps({"text": text, "language": lang}), encoding="utf-8")
     return text
 
 
+def detected_language(sid: str) -> str | None:
+    """Idioma detectado pelo Whisper na transcrição (cacheado) — mais confiável
+    que o heurístico guess_language pra alinhar (biblioteca tem PT/EN/ES)."""
+    cache = STEMS / sid / "transcript.json"
+    if cache.exists():
+        try:
+            return json.loads(cache.read_text(encoding="utf-8")).get("language")
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
 def lyric_similarity(lyrics_text: str, transcript: str) -> float:
-    """0..1: quanto a letra bate com a transcrição do canto real. Recall das
-    palavras de CONTEÚDO (len>=4) da letra presentes na transcrição — robusto a
-    erros do Whisper e reordenação, e ignora palavrinhas comuns que inflariam
-    música errada. Letra certa ~0.5-0.85; música errada ~<0.25."""
-    lw = [w for w in _norm_words(lyrics_text) if len(w) >= 4]
-    tw = {w for w in _norm_words(transcript) if len(w) >= 4}
-    if len(lw) < 5 or not tw:
+    """0..1: quanto o CANTO REAL (transcrição) confere com a letra. É a PRECISÃO
+    das palavras de conteúdo (len>=4) da transcrição que aparecem na letra —
+    'do que eu ouvi cantar, quanto está na letra?'. Escolhido de propósito em vez
+    de recall: a transcrição cobre só um trecho (primeiros ~110s), então recall
+    da letra inteira puniria música longa certa; precisão não. Palavrinhas comuns
+    (len<4) fora pra não inflar. Letra certa ~0.6-0.9; música errada ~<0.3."""
+    lset = {w for w in _norm_words(lyrics_text) if len(w) >= 4}
+    tw = [w for w in _norm_words(transcript) if len(w) >= 4]
+    if len(tw) < 5 or not lset:
         return 0.0
-    hit = sum(1 for w in lw if w in tw)
-    return round(hit / len(lw), 3)
+    hit = sum(1 for w in tw if w in lset)
+    return round(hit / len(tw), 3)
 
 
 def guess_language(text: str) -> str:
@@ -605,7 +636,8 @@ def whisper_align_lines(sid: str, line_texts: list[str]) -> list[dict] | None:
         return None
     text = "\n".join(line_texts)
     model = _get_whisper()
-    lang = guess_language(text)
+    # idioma detectado pelo Whisper na transcrição > heurístico (PT/EN/ES na lib)
+    lang = detected_language(sid) or guess_language(text)
 
     # rap/fluxo denso às vezes falha com a supressão de silêncio — tenta sem ela
     for attempt in ({}, {"suppress_silence": False}):

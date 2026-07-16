@@ -200,9 +200,34 @@ secundário (sem Whisper extra): capturar a probabilidade média de palavra do
 LRCLIB); lyrics.ovh como 2ª fonte (futuro: letras.mus.br/Genius); a própria
 transcrição vira letra de último recurso se nenhum candidato bater.
 
+**Pesquisa + MEDIÇÃO de precisão de timing (2026-07-14, "isso é o CORE"):**
+- Pesquisa: MFA e WhisperX (wav2vec2 phoneme align) são mais precisos que
+  alinhamento por Whisper — sub-100ms vs ~1s de drift no pior caso. torchaudio
+  tem `functional.forced_align()` + bundle multilíngue `MMS_FA` (mas depreca em
+  2.8+). Fontes: arxiv 2406.19363, whisperX, docs.pytorch.org/audio.
+- **MEDIÇÃO (audit timing)**: nosso `stable-ts` no nível de LINHA dá **~20-24ms
+  de erro mediano** (João e Maria 22ms, Creep 20ms, Evidências 24ms) quando a
+  letra é a CERTA. Ou seja: **não precisamos de wav2vec2/MFA** — a precisão de
+  timing já é ótima pra karaokê. O "fora do tempo" era 99% letra ERRADA
+  (forced-align de texto errado) + finais esticados (clamp). O gargalo é
+  CORREÇÃO da letra, não precisão do alinhamento. Confirmado por medição, não achismo.
+- **Metodologia do audit timing**: mede erro início-da-linha × onset-de-frase real
+  (energia) SÓ pra linhas que iniciam frase (silêncio antes) e têm onset perto
+  (<3s). Sem esse filtro, canto contínuo/rap dá erro-fantasma de dezenas de
+  segundos (poucos silêncios → casa com onset distante). Lição: métrica ingênua
+  MENTE; medir só o subconjunto verificável. `audit.py` reporta "timing (início
+  de N frases): mediana Xms".
+- **Verificação pegou caso real**: Placebo "Running Up That Hill (Cover)" =
+  similaridade 0.00 = letra totalmente errada (LRCLIB devolveu outra música).
+- Refino do review: `lyric_similarity` virou PRECISÃO (fração do CANTO que está na
+  letra), não recall — recall puniria música longa certa cuja transcrição cobre
+  só os 1ºs 110s. `detected_language` (idioma que o Whisper detecta na transcrição)
+  substitui o heurístico guess_language no align (lib tem PT/EN/ES).
+
 Feitos relacionados:
 - ✅ (2026-07-13) CANTO DESCOBERTO no audit (energia fora de frase).
 - ✅ (2026-07-14) hover mostra recorde por música no card.
+- ✅ (2026-07-14) audit mede timing (início×onset) e correção (--verify).
 
 ### Prioridade 3 — UI do player
 - ✅ (2026-07-13) título realmente centralizado (grid 1fr/auto/1fr).
