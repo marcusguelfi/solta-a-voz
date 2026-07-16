@@ -224,10 +224,28 @@ transcrição vira letra de último recurso se nenhum candidato bater.
   só os 1ºs 110s. `detected_language` (idioma que o Whisper detecta na transcrição)
   substitui o heurístico guess_language no align (lib tem PT/EN/ES).
 
+**Falsos positivos da verificação (SEMPRE inspecionar suspeita antes de refixar):**
+A transcrição do Whisper falha de 3 jeitos que dariam falsa "letra suspeita" —
+`transcript_is_reliable` guarda os 3, e uma suspeita 0.00 quase sempre é falso:
+1. **Idioma errado** → lixo não-latino (cingalês). Guard: `_latin_ratio > 0.6`.
+   Caso: Placebo "Running Up That Hill" (0.00 → 0.89 com dica de idioma).
+2. **Alucinação em loop** em intro/silêncio → "a little bit of a little bit of..."
+   Guard: diversidade `únicos/total >= 0.30`. Caso: Vanessa Carlton "A Thousand
+   Miles" (intro de piano longo).
+3. **Sem stems/transcrição** → não verificável.
+   → Sempre dar dica de idioma (`guess_language(letra)`) e checar reliability.
+   Suspeita REAL confirmada: Tianastácia (LRCLIB devolve "Fora de Controle" pra
+   vários títulos da banda).
+- Verificação usa modelo **"base"** (rápido, identidade não precisa de precisão);
+  alinhamento continua "small". `server/refix.py` re-conserta suspeitas reais.
+- Log da varredura: `data/scan_log.txt`. audit.py `--verify` transcreve tudo
+  (lento no CPU, ~1-2min/música com base).
+
 Feitos relacionados:
 - ✅ (2026-07-13) CANTO DESCOBERTO no audit (energia fora de frase).
 - ✅ (2026-07-14) hover mostra recorde por música no card.
 - ✅ (2026-07-14) audit mede timing (início×onset) e correção (--verify).
+- ✅ (2026-07-14) 3 guards de transcrição + modelo rápido + refix.
 
 ### Prioridade 3 — UI do player
 - ✅ (2026-07-13) título realmente centralizado (grid 1fr/auto/1fr).
