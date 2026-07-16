@@ -448,6 +448,13 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
                 break
 
     duration = entry.get("duration") or 0
+    # transcrição do canto real: o sinal que diz se a letra é da MÚSICA CERTA
+    # (correlação só mede timing; letra errada com canto denso ainda correlaciona)
+    transcript = None
+    try:
+        transcript = transcribe_vocals(sid)
+    except Exception:
+        logging.exception("transcrição falhou pra %s", sid)
     best = None
     for cand in candidates:
         got = correlation_align(pitch, cand["syncedLyrics"])
@@ -456,12 +463,16 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
         offset, coverage = got
         # letra de OUTRA versão da música (ao vivo estendida etc.) perde pontos
         cand_dur = cand.get("duration") or 0
-        score = coverage - (0.15 if cand_dur and duration and abs(cand_dur - duration) > 25 else 0.0)
-        if best is None or score > best[3]:
-            best = (cand, offset, coverage, score)
+        dur_penalty = 0.15 if cand_dur and duration and abs(cand_dur - duration) > 25 else 0.0
+        sim = lyric_similarity(cand.get("plainLyrics") or cand["syncedLyrics"], transcript) \
+            if transcript else 0.0
+        # similaridade com o canto real domina; correlação/duração desempatam
+        score = sim * 2.0 + coverage - dur_penalty
+        if best is None or score > best[4]:
+            best = (cand, offset, coverage, score, sim)
     if not best:
         return None
-    cand, offset, coverage, _score = best
+    cand, offset, coverage, _score, sim = best
     result = {
         "found": True,
         "synced": cand["syncedLyrics"],
@@ -469,6 +480,7 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
         "difficulty": compute_difficulty(cand["syncedLyrics"], entry.get("duration") or 0),
         "matched": {"artist": cand.get("artistName"), "title": cand.get("trackName")},
         "alignScore": coverage,
+        "lyricMatch": sim if transcript else None,  # confiança de ser a letra CERTA
     }
     _update_entry(sid, lyrics=result, autoOffset=offset)
     return result
