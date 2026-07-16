@@ -508,6 +508,22 @@ def _get_whisper():
         return _whisper_model
 
 
+_fast_model = None
+_fast_lock = threading.Lock()
+
+
+def _get_whisper_fast():
+    """Modelo rápido ("base") só pra TRANSCRIÇÃO de verificação de identidade —
+    não precisa da precisão do "small" (só das palavras de conteúdo). ~2-3× mais
+    rápido. O alinhamento (que precisa de precisão) continua no "small"."""
+    global _fast_model
+    with _fast_lock:
+        if _fast_model is None:
+            import stable_whisper
+            _fast_model = stable_whisper.load_model("base", device="cpu")
+        return _fast_model
+
+
 def _norm_words(text: str) -> list[str]:
     import unicodedata
 
@@ -569,7 +585,7 @@ def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110,
         src = clip
     except Exception:
         pass
-    model = _get_whisper()
+    model = _get_whisper_fast()
     try:
         # dica de idioma evita o Whisper "viajar" pra um idioma exótico e cuspir lixo
         result = model.transcribe(str(src), language=language,
