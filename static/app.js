@@ -694,9 +694,9 @@ function renderGenreChips() {
 }
 
 // ---- prévia no hover: segurou o mouse ~2,5s no card, toca um trechinho
-// com fade in/out e volume comedido (50%) — ninguém merece susto
+// com fade in/out e volume comedido — ninguém merece susto
 const preview = { audio: new Audio(), timer: null, fade: null };
-const PREVIEW_VOL = 0.5;
+let PREVIEW_VOL = parseFloat(localStorage.getItem("cfg:previewVol") ?? "0.5");
 
 function fadeTo(target, ms, done) {
   clearInterval(preview.fade);
@@ -916,7 +916,46 @@ $("add-toggle").onclick = () => {
 
 // sidebar (app.html): os botões novos proxiam os originais (ids preservados)
 $("sb-add")?.addEventListener("click", () => $("add-toggle").click());
-$("sb-mp")?.addEventListener("click", () => $("mp-toggle").click());
+$("sb-dueto")?.addEventListener("click", () => { mp.mode = "dueto"; openMpSetup(); });
+$("sb-duelo")?.addEventListener("click", () => { mp.mode = "duelo"; openMpSetup(); });
+
+// ---------------------------------------------------------------- configurações
+function applyLyrSize(scale) {
+  document.documentElement.style.setProperty("--lyr-scale", scale);
+}
+applyLyrSize(localStorage.getItem("cfg:lyrSize") || "1");
+
+function openSettings() {
+  $("cfg-preview-vol").value = Math.round(PREVIEW_VOL * 100);
+  $("cfg-pv-val").textContent = Math.round(PREVIEW_VOL * 100) + "%";
+  $("cfg-lead").value = Math.round(LYRIC_LEAD * 100);
+  $("cfg-lead-val").textContent = LYRIC_LEAD.toFixed(2).replace(".", ",") + "s";
+  $("cfg-lyr-size").value = localStorage.getItem("cfg:lyrSize") || "1";
+  $("settings").hidden = false;
+}
+$("sb-config")?.addEventListener("click", openSettings);
+$("cfg-close").onclick = () => { $("settings").hidden = true; };
+$("cfg-preview-vol").oninput = () => {
+  PREVIEW_VOL = $("cfg-preview-vol").value / 100;
+  localStorage.setItem("cfg:previewVol", String(PREVIEW_VOL));
+  $("cfg-pv-val").textContent = Math.round(PREVIEW_VOL * 100) + "%";
+};
+$("cfg-lead").oninput = () => {
+  LYRIC_LEAD = $("cfg-lead").value / 100;
+  localStorage.setItem("cfg:lyricLead", String(LYRIC_LEAD));
+  $("cfg-lead-val").textContent = LYRIC_LEAD.toFixed(2).replace(".", ",") + "s";
+};
+$("cfg-lyr-size").onchange = () => {
+  localStorage.setItem("cfg:lyrSize", $("cfg-lyr-size").value);
+  applyLyrSize($("cfg-lyr-size").value);
+};
+$("cfg-clear-records").onclick = () => {
+  if (!confirm("Zerar TODOS os recordes deste navegador?")) return;
+  Object.keys(localStorage).filter((k) => k.startsWith("best:"))
+    .forEach((k) => localStorage.removeItem(k));
+  toast("recordes zerados — bora fazer história de novo 🏆");
+  renderGrid();
+};
 
 let searchDebounce = null;
 $("lib-search").oninput = () => {
@@ -1335,7 +1374,7 @@ function updateOffsetLabel() {
 // tempo da letra: posição do áudio menos o offset automático, mais o ajuste manual.
 // LYRIC_LEAD acende a linha um pouco ANTES do canto — como karaokê de verdade,
 // pra dar tempo de ler (a pontuação usa o tempo real do áudio, não é afetada).
-const LYRIC_LEAD = 0.45;
+let LYRIC_LEAD = parseFloat(localStorage.getItem("cfg:lyricLead") ?? "0.45");
 function lyricTime() {
   return getTime() - autoOffset + manualOffset + LYRIC_LEAD;
 }

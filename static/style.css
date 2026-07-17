@@ -257,6 +257,17 @@ main.with-sidebar { margin-left: 216px; max-width: none; padding: 40px 34px 90px
   main.with-sidebar { margin-left: 0; }
 }
 
+/* configurações */
+.cfg-card { max-width: 480px; text-align: left; }
+.cfg-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
+.cfg-row > span { font: 600 .95rem var(--font-body); display: flex; justify-content: space-between; }
+.cfg-row b { color: var(--amber); }
+.cfg-row small { color: #6d5e83; font-size: .78rem; }
+.cfg-row select {
+  background: var(--bg-raised); border: 1px solid #32244a; color: var(--ink);
+  border-radius: 10px; padding: 9px 12px; font: inherit; cursor: pointer;
+}
+
 /* ---------- landing page ---------- */
 .landing { max-width: 980px; margin: 0 auto; padding: 70px 28px 60px; position: relative; z-index: 1; }
 .landing .tagline b { color: var(--amber); }
@@ -388,7 +399,8 @@ main.with-sidebar { margin-left: 216px; max-width: none; padding: 40px 34px 90px
 }
 .lyr-line {
   font-family: var(--font-display); font-weight: 700;
-  font-size: clamp(1.3rem, 3.4vw, 2.4rem); line-height: 1.25; text-align: center;
+  font-size: calc(clamp(1.3rem, 3.4vw, 2.4rem) * var(--lyr-scale, 1));
+  line-height: 1.25; text-align: center;
   color: #5d4f74; transition: color .3s, transform .3s, opacity .3s; opacity: .75;
 }
 .lyr-line.done { color: #3c3150; opacity: .5; }

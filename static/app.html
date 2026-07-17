@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 
@@ -25,7 +25,9 @@
   </a>
   <nav class="sb-nav">
     <button id="sb-add" class="sb-btn sb-accent">＋ adicionar música</button>
-    <button id="sb-mp" class="sb-btn">👥 dueto &amp; duelo</button>
+    <button id="sb-dueto" class="sb-btn">🎶 dueto</button>
+    <button id="sb-duelo" class="sb-btn">⚔️ duelo</button>
+    <button id="sb-config" class="sb-btn">⚙️ configurações</button>
   </nav>
   <div class="sb-foot">
     <a class="sb-link" href="/">🏠 como funciona</a>
@@ -183,6 +185,37 @@
   </div>
 </div>
 
+<!-- ======================= CONFIGURAÇÕES ======================= -->
+<div id="settings" class="results" hidden>
+  <div class="results-card cfg-card">
+    <h2 class="mp-setup-title">⚙️ Configurações</h2>
+    <label class="cfg-row">
+      <span>🎧 volume da prévia <b id="cfg-pv-val">50%</b></span>
+      <input type="range" id="cfg-preview-vol" min="0" max="100" value="50">
+    </label>
+    <label class="cfg-row">
+      <span>⏱ antecipação da letra <b id="cfg-lead-val">0,45s</b></span>
+      <input type="range" id="cfg-lead" min="0" max="100" value="45">
+      <small>quanto antes a linha acende antes do canto</small>
+    </label>
+    <label class="cfg-row">
+      <span>🔤 tamanho da letra</span>
+      <select id="cfg-lyr-size">
+        <option value="0.85">pequena</option>
+        <option value="1" selected>normal</option>
+        <option value="1.2">grande (telão)</option>
+      </select>
+    </label>
+    <div class="cfg-row">
+      <button id="cfg-clear-records" class="btn-mini">🗑 zerar recordes</button>
+      <small>apaga os recordes salvos neste navegador</small>
+    </div>
+    <div class="res-actions">
+      <button id="cfg-close" class="btn-accent">fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ======================= SETUP 2 JOGADORES ======================= -->
 <div id="mp-setup" class="results" hidden>
   <div class="results-card mp-setup-card">
@@ -212,6 +245,6 @@
 <div id="toasts" class="toasts"></div>
 <audio id="audio" crossorigin="anonymous" preload="auto"></audio>
 
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
