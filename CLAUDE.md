@@ -247,11 +247,29 @@ eram Whisper falhando (falso), 2 reais. **Suspeita 0.00 quase sempre é falso.**
 - Log da varredura: `data/scan_log.txt`. audit.py `--verify` transcreve tudo
   (lento no CPU, ~1-2min/música com base).
 
+**Auto-cura de letra incompleta (2026-07-15, "padrão Péricles/Mulher de Fases"):**
+Quando o LRC não lista refrões repetidos do final, o align espreme frases e o
+final fica sem letra. Pipeline passo 6: `uncovered_sung_regions` (energia fora
+de frase, ≥6s) → `transcribe_region_lines` (small + word timestamps, guards) →
+`extend_lyrics_with_transcript` insere linhas `auto: True` e o texto completo
+vira o trilho (`origSynced`) → realinha. Resultados: Mulher de Fases ganhou o
+final (19s cobertos, timing 48ms), Péricles 47/47.
+- **Limitação conhecida (próxima sessão)**: linhas VELHAS espremidas/GHOST na
+  região onde a transcrição inseriu novas não são removidas — falta dedup
+  (remover linha original com energia~0/janela<0.15s/palavra quando há linha
+  auto cobrindo o mesmo trecho). Caso: Mulher de Fases 172-173.6s (4 OVERLAPs).
+- Rodar manualmente: scratchpad run_extend.py ou pipeline cuida das novas.
+
 Feitos relacionados:
 - ✅ (2026-07-13) CANTO DESCOBERTO no audit (energia fora de frase).
 - ✅ (2026-07-14) hover mostra recorde por música no card.
 - ✅ (2026-07-14) audit mede timing (início×onset) e correção (--verify).
 - ✅ (2026-07-14) 3 guards de transcrição + modelo rápido + refix.
+- ✅ (2026-07-15) auto-cura (extensão por transcrição) no pipeline.
+- ✅ (2026-07-15) biblioteca: busca, ordenação, chips de gênero (campo novo
+  `genre` via yt-dlp/tags; PATCH não apaga letra em edição de gênero/álbum).
+- ✅ (2026-07-15) prévia no hover (3s) — gotcha: autoplay exige gesto; o 1º
+  clique em qualquer lugar destrava o elemento (wav silencioso no pointerdown).
 
 ### Prioridade 3 — UI do player
 - ✅ (2026-07-13) título realmente centralizado (grid 1fr/auto/1fr).

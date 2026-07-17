@@ -697,6 +697,20 @@ function renderGenreChips() {
 const preview = { audio: new Audio(), timer: null };
 preview.audio.volume = 0.55;
 
+// autoplay: hover NÃO é gesto de usuário — destrava o elemento no 1º clique
+// em qualquer lugar (toca um wav silencioso dentro do gesto)
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+document.addEventListener("pointerdown", function unlockPreview() {
+  document.removeEventListener("pointerdown", unlockPreview);
+  preview.audio.muted = true;
+  preview.audio.src = SILENT_WAV;
+  preview.audio.play().catch(() => {}).finally(() => {
+    preview.audio.pause();
+    preview.audio.removeAttribute("src");
+    preview.audio.muted = false;
+  });
+});
+
 function stopPreview() {
   clearTimeout(preview.timer);
   preview.timer = null;
