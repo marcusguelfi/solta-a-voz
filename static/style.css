@@ -257,6 +257,15 @@ main.with-sidebar { margin-left: 216px; max-width: none; padding: 40px 34px 90px
   main.with-sidebar { margin-left: 0; }
 }
 
+/* modais que vivem no BODY (fora do player fixed): precisam ser fixed na
+   viewport, senão cobrem o documento inteiro e "rolam" com a página */
+#mp-setup, #settings {
+  position: fixed; inset: 0;
+}
+#mp-setup .results-card, #settings .results-card {
+  max-height: 92vh; overflow-y: auto;
+}
+
 /* configurações */
 .cfg-card { max-width: 480px; text-align: left; }
 .cfg-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
@@ -537,10 +546,12 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 30px 80px -20px rgba(0,0,0,.8);
   animation: rise .5s cubic-bezier(.2,.9,.3,1);
 }
-.results-card h2 {
+/* SÓ a letra da nota (S/A/B…) é gigante — não os títulos de modais */
+.results-card h2#res-grade {
   font: 800 6rem/1 var(--font-display); margin-bottom: 10px;
   background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+.results-card { max-width: min(560px, 94vw); }
 .results-card h2.grade-S { text-shadow: 0 0 60px rgba(255,45,120,.6); }
 .results-card h2.grade-D, .results-card h2.grade-E {
   background: none; color: var(--ink-dim);

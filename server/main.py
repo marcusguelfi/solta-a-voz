@@ -72,23 +72,67 @@ async def no_stale_static(request: Request, call_next):
 
 # ---------------------------------------------------------------- biblioteca
 
-def _load_lib() -> dict:
-    if LIB_FILE.exists():
+import contextlib
+
+
+@contextlib.contextmanager
+def _cross_process_lock():
+    """Trava ENTRE PROCESSOS (msvcrt) — servidor, batch_fix e scripts jamais
+    escrevem library.json ao mesmo tempo. Lição de 2026-07-17: duas escritas
+    simultâneas zeraram o arquivo inteiro (NTFS alocou sem gravar)."""
+    lock_path = DATA / "library.lock"
+    f = open(lock_path, "a+b")
+    try:
+        import msvcrt
+        for _ in range(200):  # até ~20s
+            try:
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError:
+                time.sleep(0.1)
         try:
-            return json.loads(LIB_FILE.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return {}
+            yield
+        finally:
+            try:
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+    finally:
+        f.close()
+
+
+def _load_lib() -> dict:
+    for path in (LIB_FILE, LIB_FILE.with_suffix(".json.bak")):
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data:
+                    return data
+            except json.JSONDecodeError:
+                continue
     return {}
 
 
 def _save_lib(lib: dict) -> None:
-    LIB_FILE.write_text(json.dumps(lib, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Gravação ATÔMICA: tmp + fsync + os.replace, mantendo .bak da versão
+    anterior — corrupção parcial nunca mais destrói a biblioteca."""
+    tmp = LIB_FILE.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(lib, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    if LIB_FILE.exists():
+        try:
+            shutil.copy2(LIB_FILE, LIB_FILE.with_suffix(".json.bak"))
+        except OSError:
+            pass
+    os.replace(tmp, LIB_FILE)
 
 
 def _update_entry(sid: str, **fields) -> dict:
     if "status" in fields:  # base da estimativa de progresso do preparo
         fields.setdefault("stageAt", time.time())
-    with _lock:
+    with _lock, _cross_process_lock():
         lib = _load_lib()
         if sid not in lib:
             raise HTTPException(404, "Música não encontrada")
@@ -105,7 +149,7 @@ def _get_entry(sid: str) -> dict:
 
 
 def _add_entry(entry: dict) -> None:
-    with _lock:
+    with _lock, _cross_process_lock():
         lib = _load_lib()
         lib[entry["id"]] = entry
         _save_lib(lib)
@@ -1162,7 +1206,7 @@ if os.environ.get("KARAOKE_NO_WORKER") != "1":
     threading.Thread(target=_worker, daemon=True, name="karaoke-pipeline").start()
 
     # jobs interrompidos por restart voltam pra fila
-    with _lock:
+    with _lock, _cross_process_lock():
         _boot_lib = _load_lib()
         _stuck = [e["id"] for e in _boot_lib.values()
                   if e.get("status") in ("queued", "separating", "analyzing", "aligning")]
@@ -1365,7 +1409,7 @@ def patch_song(sid: str, body: SongPatch):
 
 @app.delete("/api/songs/{sid}")
 def delete_song(sid: str):
-    with _lock:
+    with _lock, _cross_process_lock():
         lib = _load_lib()
         entry = lib.pop(sid, None)
         if not entry:

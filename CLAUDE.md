@@ -338,6 +338,28 @@ Feitos relacionados:
    ready-check + contagem, placar ao vivo por frase. Latência irrelevante
    (áudio local). ~3-4 sessões.
 
+## ‼️ INCIDENTE 2026-07-17: library.json zerada (e a recuperação)
+
+Dois processos gravando ao mesmo tempo (batch_fix + genre_fill via PATCH +
+servidor) **zeraram o arquivo inteiro** (NTFS alocou 1,38MB sem gravar os dados).
+NUNCA rode dois escritores sem as proteções abaixo (agora no código):
+- `_save_lib` ATÔMICA: tmp + fsync + os.replace, mantendo `library.json.bak`.
+- `_cross_process_lock` (msvcrt em data/library.lock) em TODA escrita.
+- `_load_lib` cai pro .bak se o principal corromper.
+Recuperação que funcionou (rebuild_library.py): genre_fill_log tinha os 164
+nomes NA ORDEM do índice (addedAt desc) e o mtime dos arquivos de media segue a
+mesma ordem → casamento id↔nome validado com 12/12 âncoras conhecidas. Letras
+(só existiam no índice) repostas por relyrics.py (busca+alinha as com stems).
+Lição: log com nomes salvou tudo — logs verbosos são backup acidental. Backup
+REAL da data/ segue no roadmap (agora com prioridade máxima).
+
+## Pendências imediatas (pedido do Marcus 2026-07-17, não coube na sessão)
+
+- Card: ações na parte de baixo, acima do título (▶ central, ➕ e ✕ dos lados).
+- Confirmação de exclusão como modal estilizado (hoje é confirm() nativo).
+- Validar visual do modal dueto/dueto pós-fix (título vazava o h2 de 6rem do
+  res-grade — regra agora escopada em `h2#res-grade`).
+
 ## Gotchas de desenvolvimento (workflow — economizam tempo)
 
 - **Screenshot do preview trava** quando o player está tocando (loop
