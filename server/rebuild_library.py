@@ -35,11 +35,11 @@ def parse_genre_log() -> list[dict]:
     out = []
     for line in (BASE / "data" / "genre_fill_log.txt").read_text(encoding="utf-8").splitlines():
         if line.startswith("  ✅ "):
-            genre = line[5:27].strip()
-            rest = line[28:]
+            genre = line[4:26].strip()
+            rest = line[27:]
         elif line.startswith("  —"):
             genre = None
-            rest = line[26:]
+            rest = line[25:]
         else:
             continue
         artist, _, title = rest.partition(" - ")
