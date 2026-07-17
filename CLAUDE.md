@@ -161,6 +161,25 @@ interrompidos por restart voltam pra fila no boot).
 - Próximo: festa LAN (celular como controle) → duelo online (relay WebSocket).
   Ver detalhes lá embaixo.
 
+### REGRA DE OURO do sync (2026-07-15) + pesquisa de referência
+
+**Regra de ouro**: linha sem canto real embaixo NÃO aparece. `drop_ghost_lines`
+remove linha com energia ~0 na janela (banter ao vivo sobre intro de estúdio,
+interpolação sobre silêncio). Sintomas que ela cura: "letra passando devagarinho
+do nada", "preocupado em terminar no tempo da música e não do canto" (In The
+End, Chop Suey, Gotye). A interpolação de linhas não-ancoradas é PERIGOSA — só
+sobrevive se houver canto embaixo.
+
+**Pesquisa (nomadkaraoke/python-lyrics-transcriber — projeto irmão)**: eles usam
+(1) **anchor sequences**: n-grams da transcrição casados com as fontes de letra
+pra corrigir POR LINHA (não score global); (2) múltiplas fontes (Genius, Spotify,
+Musixmatch) além de LRCLIB; (3) **review humano em web UI** como etapa final —
+conclusão deles: "nenhuma tooling faz isso bem consistentemente" sem humano.
+Upgrades derivados pro nosso audit/pipeline:
+- v5 do audit: anchor matching por linha → apontar A LINHA errada, não só a música.
+- Editor de linha no player (arrastar início/fim) = nosso human-in-the-loop.
+- Fontes extra de letra (Genius etc.) quando LRCLIB falha (caso "A Viagem").
+
 ### Prioridade 2 — PRECISÃO DAS LETRAS (plano 2026-07-14, pedido do Marcus)
 
 **Problema real** (irmãs/tia baixaram ~70 músicas; 42 com letra): algumas letras

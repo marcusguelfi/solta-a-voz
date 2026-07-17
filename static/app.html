@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solta a Voz — karaokê caseiro</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎤</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=7">
+</head>
+<body>
+
+<div class="stage-lights" aria-hidden="true">
+  <div class="spot spot-a"></div>
+  <div class="spot spot-b"></div>
+  <div class="grain"></div>
+</div>
+
+<!-- ======================= SIDEBAR ======================= -->
+<aside id="sidebar" class="sidebar">
+  <a class="sb-brand" href="/" title="Como funciona (página inicial)">
+    <span class="sb-logo">SOLTA<br><b>A&nbsp;VOZ</b></span>
+  </a>
+  <nav class="sb-nav">
+    <button id="sb-add" class="sb-btn sb-accent">＋ adicionar música</button>
+    <button id="sb-mp" class="sb-btn">👥 dueto &amp; duelo</button>
+  </nav>
+  <div class="sb-foot">
+    <a class="sb-link" href="/">🏠 como funciona</a>
+    <a class="sb-link" href="https://github.com/marcusguelfi/solta-a-voz" target="_blank" rel="noopener">🐙 GitHub</a>
+    <a class="sb-link" href="https://marcusguelfi.netlify.app/" target="_blank" rel="noopener">💼 portfólio</a>
+  </div>
+</aside>
+
+<!-- ======================= BIBLIOTECA ======================= -->
+<main id="library-view" class="with-sidebar">
+  <section class="library">
+    <div class="lib-head">
+      <h2>Repertório</h2>
+      <span id="song-count" class="count"></span>
+      <button id="mp-toggle" class="btn-ghost mp-toggle" hidden>👥 dueto &amp; duelo</button>
+      <button id="add-toggle" class="btn-accent add-toggle" hidden>＋ adicionar música</button>
+    </div>
+
+    <div class="lib-tools">
+      <input type="search" id="lib-search" placeholder="🔎 buscar música ou artista…" spellcheck="false">
+      <select id="lib-sort" title="Ordenação">
+        <option value="recent">mais recentes</option>
+        <option value="title">título A–Z</option>
+        <option value="artist">artista A–Z</option>
+        <option value="diff">dificuldade ↑</option>
+        <option value="dur">duração ↑</option>
+        <option value="best">meu recorde ↓</option>
+      </select>
+      <div id="genre-chips" class="genre-chips"></div>
+    </div>
+
+    <div id="mp-banner" class="mp-banner" hidden>
+      <span id="mp-banner-text"></span>
+      <span class="mp-banner-hint">— escolha a música no repertório</span>
+      <button id="mp-cancel" class="btn-mini">cancelar</button>
+    </div>
+
+    <section id="add-panel" class="add-panel" hidden>
+      <div id="dropzone" class="dropzone" tabindex="0">
+        <div class="dz-icon">⇪</div>
+        <strong>Arraste um áudio aqui</strong>
+        <span>ou clique para escolher · mp3, m4a, flac, wav, ogg</span>
+        <input type="file" id="file-input" accept=".mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.webm" hidden>
+      </div>
+      <div class="link-row">
+        <input type="url" id="url-input" placeholder="…ou cole o link (música ou playlist) e aperte Enter" spellcheck="false">
+        <button id="url-btn" class="btn-accent">Baixar</button>
+      </div>
+      <p class="add-hint">💡 prefira áudio de <b>estúdio</b> — ao vivo tem plateia e reverb que atrapalham a separação da voz</p>
+      <div id="add-progress" class="add-progress" hidden>
+        <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+        <span id="add-progress-label">preparando…</span>
+      </div>
+    </section>
+
+    <div id="queue-bar" class="queue-bar" hidden>
+      <span class="q-title">🎶 fila da festa</span>
+      <div id="queue-list" class="queue-list"></div>
+      <button id="queue-play" class="btn-accent q-play">▶ tocar fila</button>
+      <button id="queue-clear" class="btn-mini" title="Esvaziar fila">limpar</button>
+    </div>
+
+    <div id="song-grid" class="song-grid"></div>
+    <p id="empty-msg" class="empty" hidden>palco vazio… clica em "＋ adicionar música" e solta a voz 🎤</p>
+  </section>
+</main>
+
+<!-- ======================= PLAYER ======================= -->
+<div id="player-view" class="player" hidden>
+  <header class="player-top">
+    <button id="back-btn" class="btn-ghost" title="Voltar (Esc)">← repertório</button>
+    <div class="now-playing">
+      <div id="p-title" class="p-title"></div>
+      <div id="p-artist" class="p-artist"></div>
+    </div>
+    <div class="player-actions">
+      <div id="p-diff" class="diff-badge"></div>
+      <button id="mic-btn" class="mic-btn" title="Ativar microfone e pontuação">🎤 pontuar</button>
+      <div id="score-chip" class="score-chip" hidden>⭐ <b id="score-val">0</b></div>
+      <div id="mp-scores" class="mp-scores" hidden>
+        <div class="mp-chip" id="mp-chip-0"><span class="mpc-name"></span> <b>0</b></div>
+        <div class="mp-chip" id="mp-chip-1"><span class="mpc-name"></span> <b>0</b></div>
+      </div>
+      <button id="menu-btn" class="btn-ghost menu-btn" title="Ajustes">☰</button>
+    </div>
+  </header>
+
+  <div id="player-menu" class="player-menu" hidden>
+    <div class="offset-group" title="Ajuste fino da sincronia da letra (o offset automático já foi aplicado)">
+      <span class="slider-label">⏱ Letra <span id="off-auto" class="off-auto"></span></span>
+      <button id="off-minus" class="btn-mini" title="letra adiantada? atrasa 0,5s">−0,5s</button>
+      <b id="off-val">+0,0s</b>
+      <button id="off-plus" class="btn-mini" title="letra atrasada? adianta 0,5s">+0,5s</button>
+    </div>
+  </div>
+
+  <section id="lyrics-box" class="lyrics-box">
+    <div id="turn-indic" class="turn-indic" hidden></div>
+    <div id="countdown" class="countdown" hidden><i></i><i></i><i></i></div>
+    <div id="rating-pop" class="rating-pop" hidden></div>
+    <div id="lyrics-scroller" class="lyrics-scroller"></div>
+    <div id="lyrics-fallback" class="lyrics-fallback" hidden>
+      <p id="fallback-msg">Nenhuma letra encontrada 😕</p>
+      <div class="retry-row">
+        <input id="retry-artist" placeholder="artista">
+        <input id="retry-title" placeholder="título">
+        <button id="retry-btn" class="btn-accent">Buscar letra</button>
+      </div>
+      <pre id="plain-lyrics" class="plain-lyrics" hidden></pre>
+    </div>
+  </section>
+
+  <footer class="controls">
+    <div class="transport">
+      <button id="play-btn" class="play-btn" title="Play/Pause (espaço)">▶</button>
+      <span id="cur-time" class="time">0:00</span>
+      <input type="range" id="seek" min="0" max="1000" value="0" class="seek">
+      <span id="tot-time" class="time">0:00</span>
+      <label class="slider-group vocal">
+        <span class="slider-label">🎙 Voz <b id="vocal-pct">25%</b></span>
+        <input type="range" id="vocal-slider" min="0" max="100" value="25">
+      </label>
+      <label class="slider-group">
+        <span class="slider-label">🎸 Instrumental <b id="inst-pct">100%</b></span>
+        <input type="range" id="inst-slider" min="0" max="130" value="100">
+      </label>
+    </div>
+    <canvas id="pitch-lane" class="pitch-lane" hidden></canvas>
+    <p class="mixer-hint" id="mode-hint"></p>
+  </footer>
+
+  <div id="results" class="results" hidden>
+    <div class="results-card">
+      <div id="res-single">
+        <h2 id="res-grade">A</h2>
+        <p id="res-total">0 pontos</p>
+        <p id="res-detail"></p>
+        <p id="res-record" class="res-record"></p>
+      </div>
+      <div id="res-mp" hidden>
+        <h2 id="res-mp-title">Duelo</h2>
+        <div class="mp-result-grid">
+          <div class="mp-side" id="res-mp-p0"></div>
+          <div class="mp-vs">×</div>
+          <div class="mp-side" id="res-mp-p1"></div>
+        </div>
+        <p id="res-mp-verdict" class="res-verdict"></p>
+      </div>
+      <div class="res-actions">
+        <button id="res-next" class="btn-accent" hidden>⏭ próxima da fila</button>
+        <button id="res-again" class="btn-accent">🎤 Cantar de novo</button>
+        <button id="res-back" class="btn-ghost">voltar ao repertório</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= SETUP 2 JOGADORES ======================= -->
+<div id="mp-setup" class="results" hidden>
+  <div class="results-card mp-setup-card">
+    <h2 class="mp-setup-title">👥 Dois jogadores</h2>
+    <div class="mp-mode-row">
+      <button class="mp-mode-btn active" data-mode="duelo">⚔️ Duelo<small>competição — quem canta melhor</small></button>
+      <button class="mp-mode-btn" data-mode="dueto">🎶 Dueto<small>juntos — placar combinado</small></button>
+    </div>
+    <div class="mp-players">
+      <div class="mp-player" data-p="0">
+        <div class="mp-emoji-row"></div>
+        <input class="mp-name-in" maxlength="14" placeholder="Jogador 1">
+      </div>
+      <div class="mp-player" data-p="1">
+        <div class="mp-emoji-row"></div>
+        <input class="mp-name-in" maxlength="14" placeholder="Jogador 2">
+      </div>
+    </div>
+    <p class="mp-setup-hint">as frases da letra se revezam entre os dois — passem o microfone 🎤</p>
+    <div class="res-actions">
+      <button id="mp-start" class="btn-accent">começar →</button>
+      <button id="mp-setup-cancel" class="btn-ghost">cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+<audio id="audio" crossorigin="anonymous" preload="auto"></audio>
+
+<script src="app.js?v=15"></script>
+</body>
+</html>

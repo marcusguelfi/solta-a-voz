@@ -222,6 +222,62 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 .song-card.locked .card-play { display: none; }
 .song-card.locked:hover { transform: none; box-shadow: none; border-color: #2b1f3d; }
 
+/* ---------- sidebar do app ---------- */
+.sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0; width: 216px; z-index: 4;
+  display: flex; flex-direction: column; gap: 18px; padding: 26px 18px;
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+  border-right: 1px solid #2b1f3d;
+}
+.sb-brand { text-decoration: none; }
+.sb-logo {
+  font: 800 1.5rem/0.9 var(--font-display); letter-spacing: -.02em; color: var(--ink);
+}
+.sb-logo b {
+  background: var(--grad); -webkit-background-clip: text;
+  background-clip: text; color: transparent;
+}
+.sb-nav { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.sb-btn {
+  text-align: left; background: #2b1f3d; border: 1px solid transparent; color: var(--ink);
+  border-radius: 12px; padding: 12px 14px; font: 600 .92rem var(--font-body); cursor: pointer;
+  transition: border-color .15s, transform .12s;
+}
+.sb-btn:hover { border-color: var(--amber); transform: translateX(2px); }
+.sb-accent { background: var(--grad); color: #1b0510; font-weight: 700; }
+.sb-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+.sb-link { color: var(--ink-dim); text-decoration: none; font-size: .86rem; }
+.sb-link:hover { color: var(--ink); }
+main.with-sidebar { margin-left: 216px; max-width: none; padding: 40px 34px 90px; }
+@media (max-width: 760px) {
+  .sidebar { position: static; width: auto; flex-direction: row; align-items: center;
+    border-right: none; border-bottom: 1px solid #2b1f3d; padding: 12px 16px; }
+  .sb-nav { flex-direction: row; margin: 0; }
+  .sb-foot { margin: 0 0 0 auto; flex-direction: row; }
+  main.with-sidebar { margin-left: 0; }
+}
+
+/* ---------- landing page ---------- */
+.landing { max-width: 980px; margin: 0 auto; padding: 70px 28px 60px; position: relative; z-index: 1; }
+.landing .tagline b { color: var(--amber); }
+.land-cta { display: inline-block; margin-top: 26px; padding: 16px 34px;
+  font-size: 1.15rem; text-decoration: none; border-radius: 14px; }
+.land-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px; margin: 60px 0 34px; }
+.land-step { background: var(--bg-card); border: 1px solid #2b1f3d; border-radius: 18px;
+  padding: 22px; }
+.land-emoji { font-size: 1.9rem; }
+.land-step h3 { font: 700 1.15rem var(--font-display); margin: 10px 0 8px; }
+.land-step p { color: var(--ink-dim); font-size: .92rem; line-height: 1.5; }
+.land-step b { color: var(--amber); }
+.land-features { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-bottom: 50px; }
+.land-features span { background: #2b1f3d; color: var(--ink-dim); border-radius: 999px;
+  padding: 7px 16px; font-size: .85rem; }
+.land-foot { text-align: center; color: #6d5e83; font-size: .85rem; }
+.land-foot nav { display: flex; gap: 22px; justify-content: center; margin-top: 12px; }
+.land-foot a { color: var(--ink-dim); text-decoration: none; }
+.land-foot a:hover { color: var(--amber); }
+
 /* busca, ordenação e gêneros */
 .lib-tools {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;
@@ -243,12 +299,17 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 .g-chip:hover { color: var(--ink); }
 .g-chip.on { border-color: var(--amber); color: var(--amber); }
 
-/* prévia tocando no hover */
+/* prévia no hover: dica enquanto espera + selo quando toca */
+.song-card::after {
+  content: "🎧 segure p/ ouvir prévia"; position: absolute; bottom: 10px; right: 10px;
+  font-size: .7rem; color: var(--ink-dim); background: rgba(11,8,18,.85);
+  padding: 3px 9px; border-radius: 999px; opacity: 0; transition: opacity .3s .4s;
+  pointer-events: none;
+}
+.song-card:hover:not(.locked):not(.previewing)::after { opacity: 1; }
 .song-card.previewing { border-color: var(--amber); box-shadow: 0 0 26px -8px var(--amber); }
 .song-card.previewing::after {
-  content: "🔊 prévia"; position: absolute; bottom: 10px; right: 10px;
-  font-size: .72rem; color: var(--amber); background: rgba(11,8,18,.85);
-  padding: 3px 9px; border-radius: 999px;
+  content: "🔊 prévia"; color: var(--amber); opacity: 1; transition: opacity .2s;
 }
 
 /* recorde no hover do card */

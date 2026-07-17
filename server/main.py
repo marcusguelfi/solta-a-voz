@@ -862,6 +862,31 @@ def extend_lyrics_with_transcript(sid: str) -> int:
     return len(added)
 
 
+def drop_ghost_lines(sid: str, lines: list[dict]) -> tuple[list[dict], int]:
+    """A REGRA DE OURO do sync: linha sem canto real embaixo NÃO aparece.
+    Remove linhas cuja janela tem energia vocal ~0 — é o que acontece quando o
+    texto é de outra versão (banter de show sobre intro de estúdio, In The End)
+    ou quando a interpolação espalhou linhas por cima de silêncio (a letra
+    'passando devagarinho do nada'). O countdown assume esses intervalos."""
+    pitch = load_pitch(sid)
+    energy = (pitch or {}).get("energy")
+    if not energy or len(lines) < 8:
+        return lines, 0
+    hop = pitch["hop"]
+    n = len(energy)
+    keep, dropped = [], 0
+    for i, ln in enumerate(lines):
+        end = ln.get("end") or (lines[i + 1]["t"] if i + 1 < len(lines) else ln["t"] + 5)
+        a, b = max(0, int(ln["t"] / hop)), min(n, int(end / hop))
+        seg = energy[a:b] or [0]
+        cov = sum(seg) / len(seg)
+        if cov < 0.12 and len(lines) - dropped > 6:  # fantasma (e mantém um mínimo)
+            dropped += 1
+            continue
+        keep.append(ln)
+    return keep, dropped
+
+
 def reconcile_with_lrc(lines: list[dict], lrc: list[tuple[float, str]]) -> dict:
     """O Whisper é preciso localmente, mas se perde em REFRÕES REPETIDOS (atribui
     a frase à repetição errada e estica a janela). O LRC humano tem offset global,
@@ -963,6 +988,10 @@ def align_lyrics_to_vocals(sid: str) -> dict | None:
     tails = clamp_ends_to_voice(sid, lines)
     if tails:
         reconciled = {**(reconciled or {}), "trimmedTails": tails}
+    # REGRA DE OURO: linha sem canto embaixo não aparece (deixa o countdown agir)
+    lines, ghosts = drop_ghost_lines(sid, lines)
+    if ghosts:
+        reconciled = {**(reconciled or {}), "droppedGhost": ghosts}
     new_synced = "\n".join(
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,

@@ -242,6 +242,21 @@ def test_is_playlist_url():
     assert not main.is_playlist_url("https://www.youtube.com/watch?v=X")
 
 
+def test_drop_ghost_lines_remove_linha_sem_canto(monkeypatch):
+    hop = 0.032
+    n = int(60 / hop)
+    energy = [0] * n
+    for a, b in [(5, 10), (20, 25), (40, 45)]:  # 3 blocos cantados
+        for k in range(int(a / hop), int(b / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    lines = ([{"t": 5.0 + i * 0.5, "end": 5.4 + i * 0.5, "text": f"c{i}"} for i in range(8)]  # cantadas
+             + [{"t": 30.0, "end": 33.0, "text": "banter de show sobre silencio"}])       # fantasma
+    kept, dropped = main.drop_ghost_lines("x", sorted(lines, key=lambda l: l["t"]))
+    assert dropped == 1
+    assert all("banter" not in ln["text"] for ln in kept)
+
+
 def test_clamp_sem_energia_nao_faz_nada(monkeypatch):
     monkeypatch.setattr(main, "load_pitch", lambda sid: None)
     lines = [{"t": 0.0, "end": 30.0, "text": "x"}]

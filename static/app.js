@@ -693,9 +693,25 @@ function renderGenreChips() {
     .forEach(([g, n]) => mk(`${g} (${n})`, g));
 }
 
-// ---- prévia no hover: segurou o mouse ~3s no card, toca um trechinho
-const preview = { audio: new Audio(), timer: null };
-preview.audio.volume = 0.55;
+// ---- prévia no hover: segurou o mouse ~2,5s no card, toca um trechinho
+// com fade in/out e volume comedido (50%) — ninguém merece susto
+const preview = { audio: new Audio(), timer: null, fade: null };
+const PREVIEW_VOL = 0.5;
+
+function fadeTo(target, ms, done) {
+  clearInterval(preview.fade);
+  const steps = 12;
+  const step = (target - preview.audio.volume) / steps;
+  let i = 0;
+  preview.fade = setInterval(() => {
+    i++;
+    preview.audio.volume = Math.min(1, Math.max(0, preview.audio.volume + step));
+    if (i >= steps) {
+      clearInterval(preview.fade);
+      if (done) done();
+    }
+  }, ms / steps);
+}
 
 // autoplay: hover NÃO é gesto de usuário — destrava o elemento no 1º clique
 // em qualquer lugar (toca um wav silencioso dentro do gesto)
@@ -714,10 +730,14 @@ document.addEventListener("pointerdown", function unlockPreview() {
 function stopPreview() {
   clearTimeout(preview.timer);
   preview.timer = null;
-  preview.audio.pause();
-  preview.audio.removeAttribute("src");
-  document.querySelectorAll(".song-card.previewing")
-    .forEach((c) => c.classList.remove("previewing"));
+  const cleanup = () => {
+    preview.audio.pause();
+    preview.audio.removeAttribute("src");
+    document.querySelectorAll(".song-card.previewing")
+      .forEach((c) => c.classList.remove("previewing"));
+  };
+  if (!preview.audio.paused) fadeTo(0, 350, cleanup); // fade out suave
+  else { clearInterval(preview.fade); cleanup(); }
 }
 
 function startPreviewSoon(songId, card) {
@@ -728,10 +748,11 @@ function startPreviewSoon(songId, card) {
     preview.audio.src = `/api/audio/${s.id}`;
     preview.audio.onloadedmetadata = () => {
       try { preview.audio.currentTime = Math.floor((s.duration || 60) * 0.3); } catch {}
-      preview.audio.play().catch(() => {});
+      preview.audio.volume = 0;
+      preview.audio.play().then(() => fadeTo(PREVIEW_VOL, 900)).catch(() => {});
     };
     card.classList.add("previewing");
-  }, 3000);
+  }, 2500);
 }
 
 async function loadSongs() {
@@ -892,6 +913,10 @@ $("add-toggle").onclick = () => {
   panel.hidden = !panel.hidden;
   if (!panel.hidden) $("url-input").focus();
 };
+
+// sidebar (app.html): os botões novos proxiam os originais (ids preservados)
+$("sb-add")?.addEventListener("click", () => $("add-toggle").click());
+$("sb-mp")?.addEventListener("click", () => $("mp-toggle").click());
 
 let searchDebounce = null;
 $("lib-search").oninput = () => {
