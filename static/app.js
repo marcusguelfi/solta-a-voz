@@ -642,16 +642,93 @@ function loadMixerFor(mode) {
 // ---------------------------------------------------------------- biblioteca
 const cardEls = new Map(); // id -> {card, meta, prog, progFill}
 
+// busca + ordenação + filtro de gênero (a view é derivada; `songs` é a fonte)
+const libFilter = { q: "", sort: "recent", genre: null };
+let lastViewKey = "";
+
+function bestOf(id) {
+  return parseInt(localStorage.getItem("best:" + id) || "0");
+}
+
+function viewSongs() {
+  let list = songs.slice();
+  const q = libFilter.q.trim().toLowerCase();
+  if (q) {
+    list = list.filter((s) =>
+      `${s.title || ""} ${s.artist || ""}`.toLowerCase().includes(q));
+  }
+  if (libFilter.genre) list = list.filter((s) => (s.genre || "") === libFilter.genre);
+  const cmp = {
+    recent: (a, b) => (b.addedAt || 0) - (a.addedAt || 0),
+    title: (a, b) => (a.title || "").localeCompare(b.title || "", "pt"),
+    artist: (a, b) => (a.artist || "").localeCompare(b.artist || "", "pt"),
+    diff: (a, b) => (a.lyrics?.difficulty?.score ?? 999) - (b.lyrics?.difficulty?.score ?? 999),
+    dur: (a, b) => (a.duration || 0) - (b.duration || 0),
+    best: (a, b) => bestOf(b.id) - bestOf(a.id),
+  }[libFilter.sort];
+  return cmp ? list.sort(cmp) : list;
+}
+
+function renderGenreChips() {
+  const box = $("genre-chips");
+  const counts = new Map();
+  songs.forEach((s) => {
+    if (s.genre) counts.set(s.genre, (counts.get(s.genre) || 0) + 1);
+  });
+  box.innerHTML = "";
+  if (!counts.size) return;
+  const mk = (label, value) => {
+    const b = document.createElement("button");
+    b.className = "g-chip" + (libFilter.genre === value ? " on" : "");
+    b.textContent = label;
+    b.onclick = () => {
+      libFilter.genre = libFilter.genre === value ? null : value;
+      renderGrid();
+      renderGenreChips();
+    };
+    box.appendChild(b);
+  };
+  mk("todos", null);
+  [...counts.entries()].sort((a, b) => b[1] - a[1])
+    .forEach(([g, n]) => mk(`${g} (${n})`, g));
+}
+
+// ---- prévia no hover: segurou o mouse ~3s no card, toca um trechinho
+const preview = { audio: new Audio(), timer: null };
+preview.audio.volume = 0.55;
+
+function stopPreview() {
+  clearTimeout(preview.timer);
+  preview.timer = null;
+  preview.audio.pause();
+  preview.audio.removeAttribute("src");
+  document.querySelectorAll(".song-card.previewing")
+    .forEach((c) => c.classList.remove("previewing"));
+}
+
+function startPreviewSoon(songId, card) {
+  clearTimeout(preview.timer);
+  preview.timer = setTimeout(() => {
+    const s = songs.find((x) => x.id === songId);
+    if (!s || !isReady(s) || !$("player-view").hidden) return;
+    preview.audio.src = `/api/audio/${s.id}`;
+    preview.audio.onloadedmetadata = () => {
+      try { preview.audio.currentTime = Math.floor((s.duration || 60) * 0.3); } catch {}
+      preview.audio.play().catch(() => {});
+    };
+    card.classList.add("previewing");
+  }, 3000);
+}
+
 async function loadSongs() {
-  const fresh = await api("/api/songs");
-  const sameList = fresh.length === songs.length &&
-    fresh.every((s, i) => s.id === songs[i]?.id);
-  songs = fresh;
-  if (sameList && cardEls.size) {
+  songs = await api("/api/songs");
+  const viewKey = viewSongs().map((s) => s.id).join(",");
+  if (viewKey === lastViewKey && cardEls.size) {
     songs.forEach(updateCardStatus); // atualização in-place: nada de piscar o grid
   } else {
     renderGrid();
   }
+  renderGenreChips();
   renderQueue();
   clearTimeout(pollTimer);
   if (songs.some((s) => PROCESSING.has(s.status))) {
@@ -718,11 +795,18 @@ function renderGrid() {
   const grid = $("song-grid");
   grid.innerHTML = "";
   cardEls.clear();
-  $("empty-msg").hidden = songs.length > 0;
+  const view = viewSongs();
+  lastViewKey = view.map((s) => s.id).join(",");
+  const filtered = view.length !== songs.length;
+  $("empty-msg").hidden = view.length > 0;
+  $("empty-msg").textContent = songs.length && !view.length
+    ? "nada com esse filtro 🔎 — limpa a busca ou o gênero"
+    : 'palco vazio… clica em "＋ adicionar música" e solta a voz 🎤';
   if (!songs.length) $("add-panel").hidden = false; // palco vazio: já abre o form
   $("song-count").textContent = songs.length
-    ? `${songs.length} música${songs.length > 1 ? "s" : ""}` : "";
-  songs.forEach((song, i) => {
+    ? (filtered ? `${view.length} de ${songs.length}` :
+       `${songs.length} música${songs.length > 1 ? "s" : ""}`) : "";
+  view.forEach((song, i) => {
     const card = document.createElement("div");
     card.className = "song-card";
     card.style.animationDelay = `${Math.min(i * 0.05, 0.4)}s`;
@@ -774,6 +858,9 @@ function renderGrid() {
       }
       openPlayer(cur);
     };
+    // prévia: mouse parado ~3s no card toca um trechinho da música
+    card.onmouseenter = () => startPreviewSoon(song.id, card);
+    card.onmouseleave = () => stopPreview();
     grid.appendChild(card);
     const refs = {
       card,
@@ -790,6 +877,19 @@ $("add-toggle").onclick = () => {
   const panel = $("add-panel");
   panel.hidden = !panel.hidden;
   if (!panel.hidden) $("url-input").focus();
+};
+
+let searchDebounce = null;
+$("lib-search").oninput = () => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => {
+    libFilter.q = $("lib-search").value;
+    renderGrid();
+  }, 150);
+};
+$("lib-sort").onchange = () => {
+  libFilter.sort = $("lib-sort").value;
+  renderGrid();
 };
 
 // ---------------------------------------------------------------- fila da festa
@@ -1296,6 +1396,7 @@ async function openPlayer(song) {
     return;
   }
   current = song;
+  stopPreview();
   $("player-view").hidden = false;
   $("library-view").style.display = "none";
   $("p-title").textContent = song.title || "Sem título";

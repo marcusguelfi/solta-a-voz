@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -31,6 +31,19 @@
       <span id="song-count" class="count"></span>
       <button id="mp-toggle" class="btn-ghost mp-toggle">👥 dueto &amp; duelo</button>
       <button id="add-toggle" class="btn-accent add-toggle">＋ adicionar música</button>
+    </div>
+
+    <div class="lib-tools">
+      <input type="search" id="lib-search" placeholder="🔎 buscar música ou artista…" spellcheck="false">
+      <select id="lib-sort" title="Ordenação">
+        <option value="recent">mais recentes</option>
+        <option value="title">título A–Z</option>
+        <option value="artist">artista A–Z</option>
+        <option value="diff">dificuldade ↑</option>
+        <option value="dur">duração ↑</option>
+        <option value="best">meu recorde ↓</option>
+      </select>
+      <div id="genre-chips" class="genre-chips"></div>
     </div>
 
     <div id="mp-banner" class="mp-banner" hidden>
@@ -188,6 +201,6 @@
 <div id="toasts" class="toasts"></div>
 <audio id="audio" crossorigin="anonymous" preload="auto"></audio>
 
-<script src="app.js?v=12"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

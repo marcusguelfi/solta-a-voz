@@ -145,7 +145,7 @@ def parse_video_title(title: str, uploader: str | None) -> tuple[str, str]:
 
 
 def read_tags(path: Path) -> dict:
-    meta = {"title": "", "artist": "", "album": "", "duration": 0, "bitrate": 0}
+    meta = {"title": "", "artist": "", "album": "", "genre": "", "duration": 0, "bitrate": 0}
     try:
         f = MutagenFile(path, easy=True)
         if f is None:
@@ -154,6 +154,7 @@ def read_tags(path: Path) -> dict:
             meta["title"] = (f.tags.get("title") or [""])[0]
             meta["artist"] = (f.tags.get("artist") or [""])[0]
             meta["album"] = (f.tags.get("album") or [""])[0]
+            meta["genre"] = (f.tags.get("genre") or [""])[0]
         if f.info:
             meta["duration"] = round(getattr(f.info, "length", 0) or 0)
             meta["bitrate"] = int(getattr(f.info, "bitrate", 0) or 0)
@@ -750,6 +751,117 @@ def whisper_align_lines(sid: str, line_texts: list[str]) -> list[dict] | None:
     return None
 
 
+def uncovered_sung_regions(sid: str, lines: list[dict], min_len: float = 6.0) -> list[tuple[float, float]]:
+    """Regiões com canto (energia) FORA de qualquer janela de frase — refrões
+    repetidos/outros que o LRC não lista. É a causa do 'final sem letra' e do
+    alinhador espremer frases (Péricles, Mulher de Fases)."""
+    pitch = load_pitch(sid)
+    energy = (pitch or {}).get("energy")
+    if not energy or not lines:
+        return []
+    hop = pitch["hop"]
+    n = len(energy)
+    covered = [False] * n
+    for i, ln in enumerate(lines):
+        end = ln.get("end") or (lines[i + 1]["t"] if i + 1 < len(lines) else ln["t"] + 5)
+        for k in range(max(0, int((ln["t"] - 0.4) / hop)), min(n, int((end + 0.4) / hop))):
+            covered[k] = True
+    regions, gap_lim = [], max(1, int(1.2 / hop))
+    k = 0
+    while k < n:
+        if energy[k] and not covered[k]:
+            j, gap = k, 0
+            while j < n and gap <= gap_lim:
+                gap = 0 if (energy[j] and not covered[j]) else gap + 1
+                j += 1
+            j -= gap
+            if (j - k) * hop >= min_len:
+                regions.append((round(k * hop, 2), round(j * hop, 2)))
+            k = j + 1
+        else:
+            k += 1
+    return regions
+
+
+def transcribe_region_lines(sid: str, a: float, b: float) -> list[dict]:
+    """Transcreve [a,b] do stem de voz com timestamps de palavra e agrupa em
+    frases (gap > 0.8s ou ~9 palavras). Usa o modelo de ALINHAMENTO (small) —
+    essas linhas entram na letra, precisam de qualidade."""
+    vocals = STEMS / sid / "vocals.mp3"
+    if not vocals.exists():
+        return []
+    clip = STEMS / sid / "_region.mp3"
+    ffmpeg = FFMPEG_BIN / "ffmpeg.exe"
+    start = max(0.0, a - 0.4)
+    try:
+        subprocess.run([str(ffmpeg) if ffmpeg.exists() else "ffmpeg", "-y",
+                        "-ss", str(round(start, 2)), "-t", str(round(b - start + 0.8, 2)),
+                        "-i", str(vocals), str(clip)], capture_output=True, check=True)
+    except Exception:
+        return []
+    try:
+        model = _get_whisper()
+        result = model.transcribe(str(clip), language=detected_language(sid),
+                                  word_timestamps=True)
+        words = [w for seg in result.segments for w in seg.words]
+    except Exception:
+        logging.exception("transcrição de região falhou pra %s", sid)
+        return []
+    finally:
+        clip.unlink(missing_ok=True)
+    if not words:
+        return []
+    full_text = " ".join(w.word.strip() for w in words)
+    if not transcript_is_reliable(full_text) and len(_norm_words(full_text)) >= 8:
+        return []  # lixo/alucinação: melhor sem letra do que letra errada
+    lines, cur = [], []
+    for w in words:
+        if cur and (float(w.start) + start) - (float(cur[-1].end) + start) > 0.8 or len(cur) >= 9:
+            lines.append(cur)
+            cur = []
+        cur.append(w)
+    if cur:
+        lines.append(cur)
+    out = []
+    for ws in lines:
+        text = " ".join(w.word.strip() for w in ws).strip()
+        if len(text) < 3:
+            continue
+        out.append({"t": round(float(ws[0].start) + start, 2),
+                    "end": round(float(ws[-1].end) + start, 2),
+                    "text": text, "auto": True})
+    return out
+
+
+def extend_lyrics_with_transcript(sid: str) -> int:
+    """Preenche os buracos: transcreve as regiões cantadas sem frase e insere as
+    linhas (marcadas auto=True) na letra. Retorna quantas linhas entraram."""
+    entry = _get_entry(sid)
+    lyr = entry.get("lyrics") or {}
+    lines = lyr.get("lines")
+    if not lines:
+        return 0
+    added = []
+    for a, b in uncovered_sung_regions(sid, lines):
+        added.extend(transcribe_region_lines(sid, a, b))
+    if not added:
+        return 0
+    merged = sorted(lines + added, key=lambda ln: ln["t"])
+    for i in range(len(merged) - 1):  # sem invadir a próxima
+        if merged[i]["end"] > merged[i + 1]["t"] - 0.02:
+            merged[i]["end"] = round(max(merged[i]["t"] + 0.4, merged[i + 1]["t"] - 0.05), 2)
+    new_synced = "\n".join(
+        f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in merged)
+    result = {**lyr, "lines": merged, "synced": new_synced,
+              # o texto completo vira o trilho do próximo realinhamento — senão o
+              # align voltaria pro LRC furado e desfaria a extensão
+              "origSynced": new_synced,
+              "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
+              "extended": len(added)}
+    _update_entry(sid, lyrics=result)
+    return len(added)
+
+
 def reconcile_with_lrc(lines: list[dict], lrc: list[tuple[float, str]]) -> dict:
     """O Whisper é preciso localmente, mas se perde em REFRÕES REPETIDOS (atribui
     a frase à repetição errada e estica a janela). O LRC humano tem offset global,
@@ -982,6 +1094,15 @@ def process_song(sid: str) -> None:
     except Exception:
         logging.exception("forced alignment falhou no pipeline pra %s", sid)
 
+    # 6) auto-cura: canto sem frase (refrão repetido que o LRC não lista) vira
+    # letra transcrita + realinha com o texto completo — sem isso o alinhador
+    # espreme frases e o final fica sem letra (padrão Péricles/Mulher de Fases)
+    try:
+        if extend_lyrics_with_transcript(sid):
+            align_lyrics_to_vocals(sid)
+    except Exception:
+        logging.exception("extensão de letra falhou pra %s", sid)
+
     _update_entry(sid, status="ready", stems=True, autoOffset=auto_offset,
                   vocalOnset=onset, errorMsg=None)
 
@@ -1048,6 +1169,7 @@ async def upload_song(file: UploadFile):
         "title": title, "artist": artist, "album": tags["album"],
         "duration": tags["duration"], "bitrate": tags["bitrate"],
         "hasCover": read_cover(dest) is not None,
+        "genre": tags.get("genre") or None,
         "thumb": None, "url": None, "lyrics": None, "addedAt": int(time.time()),
         "status": "none", "stems": False, "autoOffset": 0,
     }
@@ -1096,6 +1218,7 @@ def _download_one(url: str) -> dict:
         "title": title, "artist": artist, "album": info.get("album") or "",
         "duration": round(info.get("duration") or 0), "bitrate": 0,
         "hasCover": False, "thumb": info.get("thumbnail"),
+        "genre": (info.get("genre") or "").strip() or None,
         "url": url, "lyrics": None, "addedAt": int(time.time()),
         "status": "none", "stems": False, "autoOffset": 0,
     }
@@ -1199,12 +1322,15 @@ class SongPatch(BaseModel):
     title: str | None = None
     artist: str | None = None
     album: str | None = None
+    genre: str | None = None
 
 
 @app.patch("/api/songs/{sid}")
 def patch_song(sid: str, body: SongPatch):
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
-    fields["lyrics"] = None  # metadata mudou -> invalida cache da letra
+    if "title" in fields or "artist" in fields:
+        fields["lyrics"] = None  # identidade mudou -> re-busca letra
+    # editar só gênero/álbum NÃO pode apagar o alinhamento
     return _update_entry(sid, **fields)
 
 

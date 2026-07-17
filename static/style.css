@@ -222,6 +222,35 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 .song-card.locked .card-play { display: none; }
 .song-card.locked:hover { transform: none; box-shadow: none; border-color: #2b1f3d; }
 
+/* busca, ordenação e gêneros */
+.lib-tools {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;
+}
+#lib-search {
+  flex: 1; min-width: 220px; background: var(--bg-raised); border: 1px solid #32244a;
+  color: var(--ink); border-radius: 10px; padding: 10px 14px; font: inherit;
+}
+#lib-search:focus { outline: none; border-color: var(--amber); }
+#lib-sort {
+  background: var(--bg-raised); border: 1px solid #32244a; color: var(--ink);
+  border-radius: 10px; padding: 10px 12px; font: inherit; cursor: pointer;
+}
+.genre-chips { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
+.g-chip {
+  background: #2b1f3d; border: 1px solid transparent; color: var(--ink-dim);
+  border-radius: 999px; padding: 5px 12px; font-size: .8rem; cursor: pointer;
+}
+.g-chip:hover { color: var(--ink); }
+.g-chip.on { border-color: var(--amber); color: var(--amber); }
+
+/* prévia tocando no hover */
+.song-card.previewing { border-color: var(--amber); box-shadow: 0 0 26px -8px var(--amber); }
+.song-card.previewing::after {
+  content: "🔊 prévia"; position: absolute; bottom: 10px; right: 10px;
+  font-size: .72rem; color: var(--amber); background: rgba(11,8,18,.85);
+  padding: 3px 9px; border-radius: 999px;
+}
+
 /* recorde no hover do card */
 .card-record {
   position: absolute; left: 0; right: 0; top: 0;
