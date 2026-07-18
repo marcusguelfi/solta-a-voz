@@ -365,6 +365,11 @@ REAL da data/ segue no roadmap (agora com prioridade máxima).
    Mulher de Fases começo+violino; Toxicity intro) — fix_reported.py furou a
    fila com whisper+extensão; se restar dessincronia APÓS whisper, aí é caso
    real pro anchor-matching por linha (upgrade planejado do audit).
+5b. **Caso-limite descoberto (Toxicity)**: intro SUSSURRADA ("Conversion,
+   software version 7.0") tem energia 0% no stem — invisível pra extensão e
+   pra regra de ouro. Soluções candidatas: limiar adaptativo só pra região
+   pré-1ª-linha, ou (melhor) o editor manual de linhas — a IA não transcreve
+   o que a separação não capturou.
 5. Take Me Out muda de andamento no meio (tempo change) — offset global nunca
    serve; garantir que whisper+reconcile rodou nela; é o caso de teste perfeito.
 
