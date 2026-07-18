@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 
@@ -35,6 +35,7 @@
     <a class="sb-link" href="https://marcusguelfi.netlify.app/" target="_blank" rel="noopener">💼 portfólio</a>
   </div>
 </aside>
+<button id="sb-toggle" class="sb-toggle" title="esconder menu">‹</button>
 
 <!-- ======================= BIBLIOTECA ======================= -->
 <main id="library-view" class="with-sidebar">
@@ -105,6 +106,8 @@
     </div>
     <div class="player-actions">
       <div id="p-diff" class="diff-badge"></div>
+      <button id="sync-warn" class="sync-warn" hidden
+        title="A letra não passou pelo sync fino (whisper) nem foi editada — clique para abrir o editor">⚠ revisar sync</button>
       <button id="mic-btn" class="mic-btn" title="Ativar microfone e pontuação">🎤 pontuar</button>
       <div id="score-chip" class="score-chip" hidden>⭐ <b id="score-val">0</b></div>
       <div id="mp-scores" class="mp-scores" hidden>
@@ -226,6 +229,15 @@
       <small>quanto antes a linha acende antes do canto</small>
     </label>
     <label class="cfg-row">
+      <span>🎨 tema de cores</span>
+      <select id="cfg-theme">
+        <option value="palco" selected>palco — magenta &amp; âmbar</option>
+        <option value="neon">neon — ciano &amp; violeta</option>
+        <option value="esmeralda">esmeralda — verde &amp; lima</option>
+        <option value="brasa">brasa — vermelho &amp; laranja</option>
+      </select>
+    </label>
+    <label class="cfg-row">
       <span>🔤 tamanho da letra</span>
       <select id="cfg-lyr-size">
         <option value="0.85">pequena</option>
@@ -285,6 +297,6 @@
 <div id="toasts" class="toasts"></div>
 <audio id="audio" crossorigin="anonymous" preload="auto"></audio>
 
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

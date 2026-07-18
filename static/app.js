@@ -793,10 +793,15 @@ function metaHTML(song) {
   } else {
     statusPill = `<span class="pill prepare">preparar karaokê</span>`;
   }
+  // sync "fino" = passou pelo whisper-align ou foi editado à mão; o resto
+  // (LRC bruto/offset global) merece um aviso — e o editor resolve
+  const unverified = song.status === "ready" && song.stems && hasSync &&
+    !["whisper", "manual"].includes(song.lyrics?.alignMethod);
   return `
     <span class="pill">${fmtTime(song.duration)}</span>
     ${diff ? `<span class="pill diff ${diff.toLowerCase()}">${diff}</span>` : ""}
-    ${hasSync ? `<span class="pill">letra sync</span>` : ""}
+    ${hasSync ? `<span class="pill${song.lyrics?.alignMethod === "manual" ? " manual" : ""}">${song.lyrics?.alignMethod === "manual" ? "✍ letra sua" : "letra sync"}</span>` : ""}
+    ${unverified ? `<span class="pill warn" title="letra sem sync fino — abra a música e use ☰ → editar tempos">⚠ revisar sync</span>` : ""}
     ${statusPill}`;
 }
 
@@ -982,6 +987,7 @@ function openSettings() {
   $("cfg-lead").value = Math.round(LYRIC_LEAD * 100);
   $("cfg-lead-val").textContent = LYRIC_LEAD.toFixed(2).replace(".", ",") + "s";
   $("cfg-lyr-size").value = localStorage.getItem("cfg:lyrSize") || "1";
+  $("cfg-theme").value = localStorage.getItem("cfg:theme") || "palco";
   $("settings").hidden = false;
 }
 $("sb-config")?.addEventListener("click", openSettings);
@@ -1000,6 +1006,30 @@ $("cfg-lyr-size").onchange = () => {
   localStorage.setItem("cfg:lyrSize", $("cfg-lyr-size").value);
   applyLyrSize($("cfg-lyr-size").value);
 };
+// tema de cores: paletas via :root[data-theme] (style.css); "palco" = padrão
+function applyTheme(name) {
+  if (name && name !== "palco") document.documentElement.dataset.theme = name;
+  else delete document.documentElement.dataset.theme;
+}
+applyTheme(localStorage.getItem("cfg:theme"));
+$("cfg-theme").onchange = () => {
+  localStorage.setItem("cfg:theme", $("cfg-theme").value);
+  applyTheme($("cfg-theme").value);
+};
+
+// sidebar recolhível — o estado sobrevive entre visitas
+function applySbCollapsed(on) {
+  document.body.classList.toggle("sb-collapsed", on);
+  const t = $("sb-toggle");
+  if (t) {
+    t.textContent = on ? "›" : "‹";
+    t.title = on ? "mostrar menu" : "esconder menu";
+  }
+  localStorage.setItem("cfg:sbCollapsed", on ? "1" : "0");
+}
+$("sb-toggle")?.addEventListener("click", () =>
+  applySbCollapsed(!document.body.classList.contains("sb-collapsed")));
+if (localStorage.getItem("cfg:sbCollapsed") === "1") applySbCollapsed(true);
 $("cfg-clear-records").onclick = async () => {
   if (!await askConfirm("Zerar TODOS os recordes?", "apaga os recordes salvos neste navegador — sem volta")) return;
   Object.keys(localStorage).filter((k) => k.startsWith("best:"))
@@ -1413,6 +1443,9 @@ function setDiffBadge(lyr) {
   badge.className = "diff-badge" + (d ? " " + d.label.toLowerCase() : "");
   badge.textContent = d ? `${d.label} · ${d.wpm} ppm` : "sem medição";
   badge.title = d ? `${d.words} palavras em ${d.lines} linhas — ${d.wpm} palavras/min cantado` : "";
+  // aviso: letra existe mas não passou pelo sync fino nem por edição humana
+  $("sync-warn").hidden = !(lyr?.found &&
+    !["whisper", "manual"].includes(lyr.alignMethod));
 }
 
 function updateOffsetLabel() {
@@ -1855,6 +1888,10 @@ $("edit-save").onclick = async () => {
 
 $("edit-cancel").onclick = () => { exitEdit(true); toast("edição descartada"); };
 $("edit-btn").onclick = enterEdit;
+$("sync-warn").onclick = () => {
+  enterEdit();
+  toast("modo edição: dê play e vá marcando o início das linhas com Enter ⏱");
+};
 
 $("lyrics-scroller").addEventListener("click", (e) => {
   if (!editMode) return;

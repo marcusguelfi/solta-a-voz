@@ -152,11 +152,29 @@ interrompidos por restart voltam pra fila no boot).
 O produto é: colocar música → auto-ajuste da letra do jeito mais eficiente
 possível. "2% de erro em 500 músicas já é muita coisa — frustra, e isso eu não
 quero pro app."
-1. **Pesquisa AMPLA de sincronização** (pedido 2026-07-18): não só projetos
-   parecidos — estudar TUDO que os programas de karaokê (UltraStar, Karafun,
-   SingStar, YokeeKaraoke, AudioShake etc.) fazem pra sincronizar: formatos
-   (UltraStar .txt nota-a-nota!), pipelines, heurísticas de tempo, nuances.
-   Sem jogar fora o que já temos — aprimorar em cima.
+1. **Pesquisa AMPLA de sincronização** — 1ª rodada feita 2026-07-18:
+   - **UltraStar .txt** (padrão da cena SingStar caseira): sílaba-a-sílaba com
+     pitch POR NOTA, tempo em BEATS numa grade de BPM (×4, resolução) + GAP em
+     ms até o beat 0. Autoria MANUAL é o padrão da comunidade (usdb.eu tem
+     milhares de arquivos feitos à mão). Técnica: grade de beats quantiza o
+     timing — soa "no ritmo" mesmo com pequenos erros.
+   - **UltraSinger** (rakuri255, projeto irmão): whisper + pitch → UltraStar
+     txt automático. Técnica-chave: **quantização do pitch à TONALIDADE
+     detectada da música** — remove slides/transições vocais e corrige erros
+     do detector. Direto aplicável ao nosso lane/pontuação.
+   - **UltrastarCreatorTool** (retotito): separação + WhisperX + pitch + EDITOR
+     piano-roll completo como etapa final. 3ª confirmação independente:
+     auto-pipeline + editor humano É o padrão da indústria/cena.
+   - Derivações pro nosso pipeline (fazer):
+     a) **Realce palavra-a-palavra**: stable-ts JÁ dá word timestamps — hoje
+        jogamos fora tudo menos t/end da linha. Guardar words e pintar o fill
+        da linha palavra por palavra = karaokê profissional de verdade.
+     b) **Quantização à tonalidade** no pitch.json (detectar key com librosa,
+        snap da melodia de referência) — lane mais limpo, pontuação mais justa.
+     c) **Snap de início de linha à grade de beats** (librosa beat track,
+        ±100ms) — mata jitter residual e dá sensação "no ritmo".
+   - Falta pesquisar: KaraFun/CDG (formatos comerciais), Musixmatch sync
+     (crowdsourcing por tap), apps mobile (Smule) — 2ª rodada.
 2. **Melhor fonte + junção de letras**: multi-fonte com ranking pela
    transcrição (LRCLIB ✅, letras.mus.br ✅ 2026-07-18, lyrics.ovh ✅; falta
    Genius/Musixmatch e MESCLAR fontes — pegar estrofe que falta numa da outra).
@@ -177,10 +195,16 @@ quero pro app."
   perdida (caso Toxicity sussurro), salvar → PUT /api/lines (alignMethod
   "manual", autoOffset zerado). O human-in-the-loop dos 2% restantes.
 - ✅ (2026-07-18) Prévia default 15%.
+- ✅ (2026-07-18) **Aviso de sync não verificado**: pill "⚠ revisar sync" no
+  card (alignMethod fora de whisper/manual) + botão no player que abre o
+  editor direto; "✍ letra sua" quando editada à mão.
+- ✅ (2026-07-18) **Sidebar recolhível** (#sb-toggle fixo, body.sb-collapsed,
+  estado em localStorage cfg:sbCollapsed; some no mobile ≤760px).
+- ✅ (2026-07-18) **Temas de cores** nas configurações: palco (padrão), neon,
+  esmeralda, brasa — :root[data-theme] sobrescreve as vars; localStorage
+  cfg:theme. Limitação v1: bordas hardcoded (#2b1f3d etc.) não mudam.
 - **Tirar emojis da UI** → ícones SVG que mudam de cor e combinam com a proposta.
-- **Botão de esconder o menu lateral** + revisão geral de responsividade
-  (outras dimensões) e das opções do menu.
-- **Temas de cores** nas configurações.
+- Revisão geral de responsividade (outras dimensões) e das opções do menu.
 - Modo telão/fullscreen; nome das notas no lane.
 
 ### FASE FUTURA (ordem provável)

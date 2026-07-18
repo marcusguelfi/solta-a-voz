@@ -712,3 +712,46 @@ body.editing .lyr-line:hover {
   outline: 2px solid var(--magenta); outline-offset: 2px; border-radius: 10px;
   background: color-mix(in srgb, var(--magenta) 10%, transparent);
 }
+
+/* ---------- aviso de sync não verificado ---------- */
+.pill.warn { background: #4a3413; color: var(--amber); cursor: help; }
+.pill.manual { background: #14351f; color: var(--easy); }
+.sync-warn {
+  background: none; border: 1px solid var(--amber); color: var(--amber);
+  border-radius: 999px; padding: 7px 13px; font-size: .78rem; cursor: pointer;
+  transition: background .15s;
+}
+.sync-warn:hover { background: color-mix(in srgb, var(--amber) 14%, transparent); }
+
+/* ---------- sidebar recolhível ---------- */
+.sidebar { transition: transform .25s ease; }
+main.with-sidebar { transition: margin-left .25s ease; }
+body.sb-collapsed .sidebar { transform: translateX(-100%); }
+body.sb-collapsed main.with-sidebar { margin-left: 0; }
+.sb-toggle {
+  position: fixed; left: 202px; top: 28px; width: 28px; height: 28px; z-index: 6;
+  border-radius: 50%; background: var(--bg-card); border: 1px solid #3c2b52;
+  color: var(--ink-dim); cursor: pointer; font-size: .9rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: left .25s ease, color .15s, border-color .15s;
+}
+.sb-toggle:hover { color: var(--ink); border-color: var(--amber); }
+body.sb-collapsed .sb-toggle { left: 10px; }
+@media (max-width: 760px) { .sb-toggle { display: none; } }
+
+/* ---------- temas de cores (configurações) ---------- */
+:root[data-theme="neon"] {
+  --bg: #060a14; --bg-raised: #0d1524; --bg-card: #121b2e;
+  --ink: #eef4fb; --ink-dim: #8fa3c4;
+  --magenta: #29d8ff; --amber: #a06bff;
+}
+:root[data-theme="esmeralda"] {
+  --bg: #06110c; --bg-raised: #0c1d15; --bg-card: #11241a;
+  --ink: #edf8f1; --ink-dim: #8fb4a0;
+  --magenta: #2fe08a; --amber: #d6ff4f;
+}
+:root[data-theme="brasa"] {
+  --bg: #120806; --bg-raised: #211008; --bg-card: #2a150b;
+  --ink: #fbf1ec; --ink-dim: #c09a8a;
+  --magenta: #ff4d3d; --amber: #ffa22e;
+}
