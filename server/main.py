@@ -79,16 +79,33 @@ import contextlib
 
 @contextlib.contextmanager
 def _cross_process_lock():
-    """Trava ENTRE PROCESSOS (msvcrt) — servidor, batch_fix e scripts jamais
-    escrevem library.json ao mesmo tempo. Lição de 2026-07-17: duas escritas
-    simultâneas zeraram o arquivo inteiro (NTFS alocou sem gravar)."""
+    """Trava ENTRE PROCESSOS — servidor, batch_fix e scripts jamais escrevem
+    library.json ao mesmo tempo. Lição de 2026-07-17: duas escritas simultâneas
+    zeraram o arquivo inteiro (NTFS alocou sem gravar). msvcrt no Windows,
+    fcntl no Linux (Docker). ATENÇÃO: as travas NÃO conversam entre host e
+    container — nunca rode dois servidores sobre a MESMA pasta data/."""
     lock_path = DATA / "library.lock"
     f = open(lock_path, "a+b")
     try:
-        import msvcrt
+        try:
+            import msvcrt
+
+            def _try_lock():
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+
+            def _unlock():
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        except ImportError:
+            import fcntl
+
+            def _try_lock():
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            def _unlock():
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         for _ in range(200):  # até ~20s
             try:
-                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                _try_lock()
                 break
             except OSError:
                 time.sleep(0.1)
@@ -96,7 +113,7 @@ def _cross_process_lock():
             yield
         finally:
             try:
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                _unlock()
             except OSError:
                 pass
     finally:
@@ -977,6 +994,27 @@ def transcribe_region_lines(sid: str, a: float, b: float) -> list[dict]:
     return out
 
 
+def _canon_or_none(text: str, source_lines: list[str]) -> str | None:
+    """Valida uma linha TRANSCRITA contra a letra OFICIAL: se casa bem com uma
+    linha da fonte, devolve o texto oficial (canônico); senão None. É o freio
+    de alucinação do whisper — caso real: ele ouviu "fazendo foque..." onde a
+    letra diz "Fazendo fogueira, sem eira nem beira" (Pisando Descalço)."""
+    import difflib
+
+    cand = " ".join(_norm_txt(text).split())
+    if not cand:
+        return None
+    best, best_r = None, 0.0
+    for src in source_lines:
+        s = " ".join(_norm_txt(src).split())
+        if not s:
+            continue
+        r = difflib.SequenceMatcher(None, cand, s).ratio()
+        if r > best_r:
+            best, best_r = src, r
+    return best if best_r >= 0.55 else None
+
+
 def extend_lyrics_with_transcript(sid: str) -> int:
     """Preenche os buracos: transcreve as regiões cantadas sem frase e insere as
     linhas (marcadas auto=True) na letra. Retorna quantas linhas entraram."""
@@ -990,6 +1028,33 @@ def extend_lyrics_with_transcript(sid: str) -> int:
         added.extend(transcribe_region_lines(sid, a, b))
     if not added:
         return 0
+    # VALIDAÇÃO ANTI-ALUCINAÇÃO (2026-07-18): linha transcrita só entra se
+    # EXISTE na letra oficial — e entra com o texto OFICIAL, não o do ouvido
+    # da IA. Sem fonte plain salva, busca no letras.mus.br/lyrics.ovh agora.
+    source = lyr.get("plain")
+    if not source:
+        try:
+            source = fetch_plain_fallback(entry.get("artist") or "",
+                                          entry.get("title") or "")
+            if source:
+                lyr = {**lyr, "plain": source}
+        except Exception:
+            source = None
+    if source:
+        src_lines = [l.strip() for l in source.splitlines() if l.strip()]
+        validated, dropped = [], 0
+        for ln in added:
+            canon = _canon_or_none(ln["text"], src_lines)
+            if canon:
+                validated.append({**ln, "text": canon})
+            else:
+                dropped += 1
+        if dropped:
+            logging.info("extensão: %d linha(s) alucinada(s) descartada(s) em %s",
+                         dropped, sid)
+        added = validated
+        if not added:
+            return 0
     merged = sorted(lines + added, key=lambda ln: ln["t"])
     for i in range(len(merged) - 1):  # sem invadir a próxima
         if merged[i]["end"] > merged[i + 1]["t"] - 0.02:
@@ -1040,10 +1105,17 @@ def reconcile_with_lrc(lines: list[dict], lrc: list[tuple[float, str]]) -> dict:
 
     n = min(len(lines), len(lrc))
     offset = statistics.median(lines[i]["t"] - lrc[i][0] for i in range(n))
+    # offset absurdo = o próprio trilho está errado (whisper se perdeu em massa,
+    # típico de intro instrumental longa — caso Another Brick: -52s puxou tudo
+    # pra tempo NEGATIVO). Não aplica: melhor whisper cru + "revisar sync".
+    if abs(offset) > 20:
+        return {"fixed": 0, "offset": round(offset, 2), "skipped": "offset absurdo"}
     tol = 3.5
     fixed = 0
     for i in range(n):
         expected = lrc[i][0] + offset
+        if expected < 0:
+            continue  # nunca cria linha antes do início do áudio
         if abs(lines[i]["t"] - expected) > tol:
             nxt = (lrc[i + 1][0] + offset) if i + 1 < n else expected + 5
             lines[i]["t"] = round(expected, 2)
@@ -1137,12 +1209,22 @@ def align_lyrics_to_vocals(sid: str) -> dict | None:
     lines, ghosts = drop_ghost_lines(sid, lines)
     if ghosts:
         reconciled = {**(reconciled or {}), "droppedGhost": ghosts}
+    # invariante duro: tempo negativo não existe (caso Another Brick, offset -52s)
+    neg = [ln for ln in lines if ln["t"] < 0]
+    if neg:
+        lines = [ln for ln in lines if ln["t"] >= 0]
+        reconciled = {**(reconciled or {}), "droppedNegative": len(neg)}
+    if len(lines) < 4:
+        return None  # alinhamento colapsou — melhor manter a letra anterior
     new_synced = "\n".join(
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
+    # trilho do LRC recusado (offset absurdo) = whisper sozinho numa faixa que
+    # já se mostrou traiçoeira — rebaixa a confiança pro card avisar "revisar"
+    method = "whisper-suspeito" if (reconciled or {}).get("skipped") else "whisper"
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
               "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
-              "alignMethod": "whisper", "reconciled": reconciled}
+              "alignMethod": method, "reconciled": reconciled}
     _update_entry(sid, lyrics=result, autoOffset=0)
     return result
 
@@ -1592,8 +1674,26 @@ def put_lines(sid: str, body: LinesBody):
     result = {**lyr, "found": True, "lines": lines, "synced": new_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
               "alignMethod": "manual"}
-    _update_entry(sid, lyrics=result, autoOffset=0)
+    extra = {}
+    # 1ª edição manual guarda a versão AUTOMÁTICA — botão "voltar pro automático"
+    # (pedido após o Marcus apagar a letra inteira editando Pisando Descalço)
+    if lyr.get("alignMethod") != "manual" and lyr.get("lines"):
+        extra["lyricsBackup"] = {"lyrics": lyr,
+                                 "autoOffset": entry.get("autoOffset") or 0}
+    _update_entry(sid, lyrics=result, autoOffset=0, **extra)
     return result
+
+
+@app.post("/api/lines/{sid}/restore")
+def restore_lines(sid: str):
+    """Desfaz TODAS as edições manuais: volta pra última versão automática."""
+    entry = _get_entry(sid)
+    backup = entry.get("lyricsBackup")
+    if not backup or not backup.get("lyrics"):
+        raise HTTPException(404, "não há versão automática guardada desta letra")
+    _update_entry(sid, lyrics=backup["lyrics"],
+                  autoOffset=backup.get("autoOffset") or 0)
+    return backup
 
 
 @app.get("/api/pitch/{sid}")

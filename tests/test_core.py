@@ -358,3 +358,33 @@ def test_line_words_relative():
     # menos de 2 palavras válidas -> None (fill cai pra interpolação linear)
     assert main._line_words([W(10.0, 10.0, "x"), W(10.5, 11.0, "y")], 10.0) is None
     assert main._line_words([], 0.0) is None
+
+
+def test_canon_valida_extensao_contra_fonte():
+    """Anti-alucinação: transcrição só entra se existir na letra oficial."""
+    src = ["Fazendo fogueira, sem eira nem beira", "Deixa eu viver no meu mundo"]
+    # quase igual -> entra com o texto OFICIAL
+    assert main._canon_or_none("fazendo fogueira sem eira nem beira", src) == src[0]
+    # alucinação curta ("fazendo foque") -> fora
+    assert main._canon_or_none("fazendo foque", src) is None
+    # alucinação total -> fora
+    assert main._canon_or_none("blablabla nada a ver com nada", src) is None
+
+
+def test_reconcile_recusa_offset_absurdo():
+    """Caso Another Brick: offset -52s teria puxado a letra pra tempo NEGATIVO."""
+    lines = [{"t": 5.0, "end": 8.0, "text": "a"}, {"t": 10.0, "end": 13.0, "text": "b"},
+             {"t": 15.0, "end": 18.0, "text": "c"}]
+    lrc = [(60.0, "a"), (65.0, "b"), (70.0, "c")]
+    antes = [dict(l) for l in lines]
+    rec = main.reconcile_with_lrc(lines, lrc)
+    assert rec.get("skipped") == "offset absurdo"
+    assert lines == antes  # não tocou em nada
+
+
+def test_reconcile_nunca_cria_tempo_negativo():
+    lines = [{"t": 30.0, "end": 33.0, "text": "a"}, {"t": 4.0, "end": 6.0, "text": "b"},
+             {"t": 12.0, "end": 14.0, "text": "c"}]
+    lrc = [(0.5, "a"), (6.0, "b"), (12.0, "c")]
+    main.reconcile_with_lrc(lines, lrc)  # offset ~0: linha 'a' fugiu do trilho
+    assert all(l["t"] >= 0 for l in lines)

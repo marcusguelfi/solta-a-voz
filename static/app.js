@@ -1873,7 +1873,27 @@ function editSet(field, audioT) {
     if (field === "t") l.end = +(l.t + 0.3).toFixed(2);
     else l.t = Math.max(0, +(l.end - 0.3).toFixed(2));
   }
+  resolveOverlaps(editSel);
   refreshEditTimes();
+}
+
+// A LINHA EDITADA MANDA: vizinhos que ficarem por cima são empurrados
+// (caso Já Sei Namorar: intro esticada até 30s "comida" pela linha antiga).
+// Pra frente: cada linha começa depois do fim da anterior, em cascata até
+// sobrar espaço. Pra trás: a anterior é aparada pra terminar antes.
+function resolveOverlaps(from) {
+  for (let i = from + 1; i < lyrLines.length; i++) {
+    const prev = lyrLines[i - 1], l = lyrLines[i];
+    if (l.t >= prev.end + 0.05) break; // já cabe: cascata termina
+    l.t = +(prev.end + 0.05).toFixed(2);
+    if (l.end < l.t + 0.3) l.end = +(l.t + 0.3).toFixed(2);
+  }
+  for (let i = from - 1; i >= 0; i--) {
+    const next = lyrLines[i + 1], l = lyrLines[i];
+    if (l.end <= next.t - 0.05) break;
+    l.end = +Math.max(next.t - 0.05, 0.35).toFixed(2);
+    if (l.t > l.end - 0.3) l.t = +Math.max(0, l.end - 0.3).toFixed(2);
+  }
 }
 const editNudge = (field, d) => {
   const l = lyrLines[editSel];
@@ -1963,6 +1983,28 @@ $("edit-save").onclick = async () => {
 
 $("edit-cancel").onclick = () => { exitEdit(true); toast("edição descartada"); };
 $("edit-btn").onclick = enterEdit;
+
+// rede de segurança do editor: a 1ª edição manual guarda a versão automática
+// no servidor — daqui dá pra voltar mesmo depois de salvar besteira
+$("edit-restore").onclick = async () => {
+  if (!await askConfirm("Voltar pra versão automática?",
+    "as edições manuais SALVAS desta música serão descartadas")) return;
+  try {
+    const res = await api(`/api/lines/${current.id}/restore`, { method: "POST" });
+    current.lyrics = res.lyrics;
+    autoOffset = res.autoOffset || 0;
+    manualOffset = 0;
+    localStorage.removeItem("lyroff:" + current.id);
+    updateOffsetLabel();
+    setDiffBadge(res.lyrics);
+    exitEdit(false);
+    renderLyrics(res.lyrics);
+    loadSongs();
+    toast("versão automática restaurada ↩");
+  } catch (err) {
+    toast(err.message, true);
+  }
+};
 $("sync-warn").onclick = () => {
   enterEdit();
   toast("modo edição: dê play e vá marcando o início das linhas com Enter ⏱");

@@ -180,11 +180,13 @@ quero pro app."
         próximo, lane limpo sem vibrato serrilhando. SÓ desenho; pontuação
         segue no midi cru. Falta a versão completa: detectar TONALIDADE
         (librosa) e snap à escala, aí sim vale levar pra pontuação.
-     c) ❌ **Snap à grade de beats — decidido NÃO fazer por ora**: nosso erro
-        mediano medido (20-50ms/linha) é MELHOR que a resolução de uma grade
-        de semicolcheia (~125ms a 120bpm), e canto real começa fora do beat
-        o tempo todo (anacruse/síncope) — o snap consertaria o que não está
-        quebrado e quebraria o que está certo. Rever só se aparecer jitter.
+     c) ❌ **Snap à grade de beats — REPROVADO EMPIRICAMENTE (2026-07-18)**:
+        experimento a pedido do Marcus (scratchpad beat_snap_test.py): snap do
+        início de linha à grade de MEIO-beat (librosa beat_track, tol 120ms)
+        vs onset real de frase. Resultado unânime — PIOROU nas 3: João e Maria
+        22→72ms, Creep 20→54ms, Chop Suey 40→77ms. Canto real não começa na
+        grade (anacruse/síncope); o whisper cru é 2-3× melhor. CASO ENCERRADO
+        com números — não redescobrir essa ideia.
    - Falta pesquisar: KaraFun/CDG (formatos comerciais), Musixmatch sync
      (crowdsourcing por tap), apps mobile (Smule) — 2ª rodada.
 2. **Melhor fonte + junção de letras**: multi-fonte com ranking pela
@@ -448,6 +450,38 @@ REAL da data/ segue no roadmap (agora com prioridade máxima).
 5. Take Me Out muda de andamento no meio — caso de teste perfeito do item 4.
 6. Testar o Dockerfile num docker real (não testado — máquina local sem Docker
    no PATH); `docker compose up -d --build` no servidor doméstico.
+
+### Rodada de validação 2026-07-18 (noite) — anti-alucinação + editor v2
+
+**Como UltraStar/UltraSinger sincronizam (resposta à pergunta do Marcus):**
+UltraStar NÃO sincroniza nada — humanos marcam sílaba a sílaba num editor (o
+usdb.eu inteiro é autoria manual). UltraSinger NÃO pega letra de fora — usa a
+própria transcrição do whisper como letra, ou seja, ALUCINA IGUAL (e a
+comunidade corrige na mão). Nosso modelo (letra humana de fonte + forced
+alignment) já é o mais forte dos três; o único ponto que confiava no ouvido
+da IA era a EXTENSÃO — corrigido hoje:
+- **Validação anti-alucinação da extensão** (`_canon_or_none`): linha
+  transcrita só entra se casa (SequenceMatcher ≥0.55, texto normalizado) com
+  alguma linha da letra OFICIAL — e entra com o texto oficial, não o ouvido
+  ("fazendo foque" → descartada; refrão real → texto certo). Sem plain salvo,
+  busca na hora no letras.mus.br/lyrics.ovh. Caso-gatilho: Pisando Descalço.
+- **Guardas anti-catástrofe no reconcile** (caso Another Brick: offset mediano
+  -52,59s puxou 17 linhas pra tempo NEGATIVO): |offset|>20s → trilho recusado
+  (skipped); expected<0 nunca aplica; invariante no align: linha t<0 é
+  descartada, <4 linhas restantes → align falhou (mantém letra anterior).
+  Trilho recusado → alignMethod "whisper-suspeito" → pill "⚠ revisar sync".
+- **Editor v2**: (1) a linha editada MANDA — vizinha de trás apara o fim, as
+  da frente são empurradas em cascata até sobrar folga (caso Já Sei Namorar:
+  Intro 0→30,4s do Marcus era "comida" pela linha antiga em 4,2s; corrigido
+  nos dados: 18 linhas empurradas); (2) **↩ automático**: 1ª edição manual
+  guarda a versão automática em lyricsBackup; POST /api/lines/{sid}/restore
+  desfaz tudo (Marcus apagou a letra inteira editando — nunca mais).
+  Round-trip testado: salvar preserva words (offsets relativos + rematch por
+  texto), restaurar volta byte a byte.
+- **Docker**: diffq não tem wheel linux/py3.12 → gcc no apt do Dockerfile;
+  _cross_process_lock ganhou fallback fcntl (msvcrt é só Windows). ‼️ As
+  travas NÃO conversam entre host e container: JAMAIS dois servidores na
+  mesma data/ (teste usa data/ separada).
 
 ### Feito em 2026-07-18 (contexto rápido)
 - Editor humano de linhas (front + PUT /api/lines) — ver Fase 2.
