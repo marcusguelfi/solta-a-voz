@@ -643,7 +643,10 @@ function loadMixerFor(mode) {
 const cardEls = new Map(); // id -> {card, meta, prog, progFill}
 
 // busca + ordenação + filtro de gênero (a view é derivada; `songs` é a fonte)
-const libFilter = { q: "", sort: "recent", genre: null };
+const libFilter = {
+  q: "", sort: "recent", genre: null,
+  view: localStorage.getItem("cfg:libView") || "shelves", // gavetas ou tudo junto
+};
 let lastViewKey = "";
 
 function bestOf(id) {
@@ -846,10 +849,13 @@ function renderGrid() {
   $("song-count").textContent = songs.length
     ? (filtered ? `${view.length} de ${songs.length}` :
        `${songs.length} música${songs.length > 1 ? "s" : ""}`) : "";
-  // gavetas estilo Steam na visão padrão; grid plano quando há busca/filtro/ordenação
-  const shelves = !libFilter.q && !libFilter.genre && libFilter.sort === "recent" &&
-    songs.some((s) => s.genre);
+  // gavetas estilo Steam na visão padrão; grid plano quando o Marcus pede
+  // "todos juntos" ou quando há busca/filtro/ordenação ativos
+  const shelves = libFilter.view !== "all" && !libFilter.q && !libFilter.genre &&
+    libFilter.sort === "recent" && songs.some((s) => s.genre);
   grid.classList.toggle("as-shelves", shelves);
+  const vt = $("view-toggle");
+  if (vt) vt.textContent = libFilter.view === "all" ? "🗂 por gênero" : "▦ todos juntos";
   if (!shelves) {
     view.forEach((song, i) => grid.appendChild(makeCard(song, i)));
     return;
@@ -877,9 +883,46 @@ function renderGrid() {
       list.forEach((song, i) => row.appendChild(makeCard(song, i)));
       head.querySelector(".sh-prev").onclick = () => row.scrollBy({ left: -row.clientWidth * 0.8, behavior: "smooth" });
       head.querySelector(".sh-next").onclick = () => row.scrollBy({ left: row.clientWidth * 0.8, behavior: "smooth" });
+      makeDragScroll(row);
       shelf.append(head, row);
       grid.appendChild(shelf);
     });
+}
+
+$("view-toggle").onclick = () => {
+  libFilter.view = libFilter.view === "all" ? "shelves" : "all";
+  localStorage.setItem("cfg:libView", libFilter.view);
+  renderGrid();
+};
+
+// arrastar a gaveta com o mouse (estilo Steam) — setinhas viram acessório.
+// Depois de arrastar de verdade (>6px), o clique que fecha o gesto é engolido
+// no capture pra não abrir a música sem querer.
+function makeDragScroll(row) {
+  let down = false, dragged = false, startX = 0, startScroll = 0;
+  row.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    down = true; dragged = false;
+    startX = e.clientX;
+    startScroll = row.scrollLeft;
+  });
+  row.addEventListener("pointermove", (e) => {
+    if (!down) return;
+    const dx = e.clientX - startX;
+    if (!dragged && Math.abs(dx) > 6) {
+      dragged = true;
+      row.classList.add("dragging"); // desliga o scroll-snap durante o arrasto
+      try { row.setPointerCapture(e.pointerId); } catch {}
+      stopPreview();
+    }
+    if (dragged) row.scrollLeft = startScroll - dx;
+  });
+  const release = () => { down = false; row.classList.remove("dragging"); };
+  row.addEventListener("pointerup", release);
+  row.addEventListener("pointercancel", release);
+  row.addEventListener("click", (e) => {
+    if (dragged) { e.stopPropagation(); e.preventDefault(); dragged = false; }
+  }, true);
 }
 
 function makeCard(song, i) {

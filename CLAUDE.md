@@ -190,6 +190,12 @@ quero pro app."
 - ✅ (2026-07-18) Card: ações na base da capa — ▶ centro, ➕ ✕ lados.
 - ✅ (2026-07-18) Modal de exclusão estilizado (fim do confirm() nativo).
 - ✅ (2026-07-18) Gavetas de gênero estilo Steam (prateleiras horizontais).
+- ✅ (2026-07-18) **Arrasto com o mouse nas gavetas** (makeDragScroll) + botão
+  "▦ todos juntos"/"🗂 por gênero" (libFilter.view, localStorage cfg:libView).
+  Gotchas do drag: (1) clique pós-arrasto engolido em CAPTURE senão abre
+  música sem querer; (2) scroll-snap desligado durante o arrasto (classe
+  .dragging) senão pula; (3) -webkit-user-drag:none nas capas senão o drag
+  nativo de <img> rouba o gesto; (4) setPointerCapture pra seguir fora da row.
 - ✅ (2026-07-18) **Editor humano de linhas** no player (☰ → editar tempos):
   clicar linha → Enter marca início na hora, nudges ±0,1s, ＋linha pra intro
   perdida (caso Toxicity sussurro), salvar → PUT /api/lines (alignMethod

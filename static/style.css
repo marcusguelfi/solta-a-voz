@@ -755,3 +755,9 @@ body.sb-collapsed .sb-toggle { left: 10px; }
   --ink: #fbf1ec; --ink-dim: #c09a8a;
   --magenta: #ff4d3d; --amber: #ffa22e;
 }
+
+/* ---------- arrasto nas gavetas + alternador de visão ---------- */
+.shelf-row { cursor: grab; user-select: none; }
+.shelf-row.dragging { cursor: grabbing; scroll-snap-type: none; }
+.shelf-row img { -webkit-user-drag: none; }
+.view-toggle { white-space: nowrap; }
