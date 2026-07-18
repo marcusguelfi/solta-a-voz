@@ -2,9 +2,10 @@
 # Os modelos de IA baixam no primeiro preparo e ficam no volume /app/data.
 FROM python:3.12-slim
 
-# gcc: o diffq (dependência do audio-separator) não tem wheel pro linux/py3.12
-# e compila uma extensão C na instalação
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg gcc \
+# gcc + libc6-dev: o diffq (dependência do audio-separator) não tem wheel pro
+# linux/py3.12 e compila uma extensão C na instalação (precisa dos headers)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

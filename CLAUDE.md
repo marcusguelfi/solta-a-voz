@@ -478,10 +478,16 @@ da IA era a EXTENSÃO — corrigido hoje:
   desfaz tudo (Marcus apagou a letra inteira editando — nunca mais).
   Round-trip testado: salvar preserva words (offsets relativos + rematch por
   texto), restaurar volta byte a byte.
-- **Docker**: diffq não tem wheel linux/py3.12 → gcc no apt do Dockerfile;
-  _cross_process_lock ganhou fallback fcntl (msvcrt é só Windows). ‼️ As
-  travas NÃO conversam entre host e container: JAMAIS dois servidores na
-  mesma data/ (teste usa data/ separada).
+- **Docker TESTADO E FUNCIONANDO** (2026-07-18, Docker Desktop win):
+  imagem 4,29GB, build ~10min. Dois gotchas de build: diffq não tem wheel
+  linux/py3.12 e compila C → precisa `gcc libc6-dev` no apt (gcc sozinho
+  falha com "stdlib.h not found"); _cross_process_lock ganhou fallback fcntl
+  (msvcrt é só Windows — crashava o container no boot). Teste: container na
+  8778 com data/ ISOLADA → landing 200, app inteiro renderiza, /api/songs ok,
+  logs limpos. NÃO exercitado: pipeline de IA no container (separação baixa
+  modelos ~600MB no 1º preparo — validar no servidor doméstico). ‼️ As travas
+  NÃO conversam entre host e container: JAMAIS dois servidores na mesma data/.
+  Rodar de verdade: `docker compose up -d --build` (volume ./data, porta 8777).
 
 ### Feito em 2026-07-18 (contexto rápido)
 - Editor humano de linhas (front + PUT /api/lines) — ver Fase 2.
