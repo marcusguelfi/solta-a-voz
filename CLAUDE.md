@@ -353,12 +353,20 @@ mesma ordem → casamento id↔nome validado com 12/12 âncoras conhecidas. Letr
 Lição: log com nomes salvou tudo — logs verbosos são backup acidental. Backup
 REAL da data/ segue no roadmap (agora com prioridade máxima).
 
-## Pendências imediatas (pedido do Marcus 2026-07-17, não coube na sessão)
+## Pendências imediatas (pedidos do Marcus, próxima sessão COMEÇA por aqui)
 
-- Card: ações na parte de baixo, acima do título (▶ central, ➕ e ✕ dos lados).
-- Confirmação de exclusão como modal estilizado (hoje é confirm() nativo).
-- Validar visual do modal dueto/dueto pós-fix (título vazava o h2 de 6rem do
-  res-grade — regra agora escopada em `h2#res-grade`).
+1. **Gavetas de gênero estilo STEAM** (print de referência mostrado): fileiras
+   horizontais por gênero com capas grandes roláveis, cabeçalho com nome do
+   gênero + contagem + ordenação própria. Substitui os chips atuais.
+2. **Card**: ações na parte de baixo, acima do título — ▶ central, ➕ e ✕ dos
+   lados. (pedido 2×, ainda não feito!)
+3. Confirmação de exclusão como modal estilizado (hoje é confirm() nativo).
+4. Pós-relyrics: re-testar as reportadas (Take Me Out pausa longa; System vários;
+   Mulher de Fases começo+violino; Toxicity intro) — fix_reported.py furou a
+   fila com whisper+extensão; se restar dessincronia APÓS whisper, aí é caso
+   real pro anchor-matching por linha (upgrade planejado do audit).
+5. Take Me Out muda de andamento no meio (tempo change) — offset global nunca
+   serve; garantir que whisper+reconcile rodou nela; é o caso de teste perfeito.
 
 ## Gotchas de desenvolvimento (workflow — economizam tempo)
 
