@@ -696,7 +696,7 @@ function renderGenreChips() {
 // ---- prévia no hover: segurou o mouse ~2,5s no card, toca um trechinho
 // com fade in/out e volume comedido — ninguém merece susto
 const preview = { audio: new Audio(), timer: null, fade: null };
-let PREVIEW_VOL = parseFloat(localStorage.getItem("cfg:previewVol") ?? "0.5");
+let PREVIEW_VOL = parseFloat(localStorage.getItem("cfg:previewVol") ?? "0.15");
 
 function fadeTo(target, ms, done) {
   clearInterval(preview.fade);
@@ -841,70 +841,121 @@ function renderGrid() {
   $("song-count").textContent = songs.length
     ? (filtered ? `${view.length} de ${songs.length}` :
        `${songs.length} música${songs.length > 1 ? "s" : ""}`) : "";
-  view.forEach((song, i) => {
-    const card = document.createElement("div");
-    card.className = "song-card";
-    card.style.animationDelay = `${Math.min(i * 0.05, 0.4)}s`;
-    const coverURL = song.hasCover || song.thumb ? `/api/cover/${song.id}` : null;
-    card.innerHTML = `
+  // gavetas estilo Steam na visão padrão; grid plano quando há busca/filtro/ordenação
+  const shelves = !libFilter.q && !libFilter.genre && libFilter.sort === "recent" &&
+    songs.some((s) => s.genre);
+  grid.classList.toggle("as-shelves", shelves);
+  if (!shelves) {
+    view.forEach((song, i) => grid.appendChild(makeCard(song, i)));
+    return;
+  }
+  const groups = new Map();
+  view.forEach((s) => {
+    const g = s.genre || "sem gênero";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(s);
+  });
+  [...groups.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .forEach(([g, list]) => {
+      const shelf = document.createElement("section");
+      shelf.className = "shelf";
+      const head = document.createElement("div");
+      head.className = "shelf-head";
+      head.innerHTML = `<h3></h3><span class="shelf-count"></span>
+        <span class="shelf-nav"><button class="btn-mini sh-prev" title="anteriores">‹</button><button class="btn-mini sh-next" title="próximas">›</button></span>`;
+      head.querySelector("h3").textContent = g;
+      head.querySelector(".shelf-count").textContent =
+        `${list.length} música${list.length > 1 ? "s" : ""}`;
+      const row = document.createElement("div");
+      row.className = "shelf-row";
+      list.forEach((song, i) => row.appendChild(makeCard(song, i)));
+      head.querySelector(".sh-prev").onclick = () => row.scrollBy({ left: -row.clientWidth * 0.8, behavior: "smooth" });
+      head.querySelector(".sh-next").onclick = () => row.scrollBy({ left: row.clientWidth * 0.8, behavior: "smooth" });
+      shelf.append(head, row);
+      grid.appendChild(shelf);
+    });
+}
+
+function makeCard(song, i) {
+  const card = document.createElement("div");
+  card.className = "song-card";
+  card.style.animationDelay = `${Math.min(i * 0.05, 0.4)}s`;
+  const coverURL = song.hasCover || song.thumb ? `/api/cover/${song.id}` : null;
+  card.innerHTML = `
+    <div class="cover-wrap">
       ${coverURL
         ? `<img class="cover" src="${coverURL}" alt="" loading="lazy"
              onerror="this.outerHTML='<div class=cover-fallback>${(song.title || "?")[0].toUpperCase()}</div>'">`
         : `<div class="cover-fallback">${(song.title || "?")[0].toUpperCase()}</div>`}
-      <button class="card-del" title="Remover">✕</button>
-      <button class="card-queue" title="Adicionar à fila da festa">➕</button>
-      <button class="card-play" title="Cantar!">▶</button>
       <div class="card-record" hidden></div>
-      <div class="card-body">
-        <div class="card-title"></div>
-        <div class="card-artist"></div>
-        <div class="card-meta"></div>
-        <div class="prog" hidden><i></i></div>
-      </div>`;
-    card.querySelector(".card-title").textContent = song.title || "Sem título";
-    card.querySelector(".card-artist").textContent = song.artist || "—";
-    const best = parseInt(localStorage.getItem("best:" + song.id) || "0");
-    const rec = card.querySelector(".card-record");
-    rec.textContent = best ? `🏆 recorde: ${best.toLocaleString("pt-BR")}` : "🏆 sem recorde — seja o 1º!";
-    rec.hidden = false;
-    card.querySelector(".card-del").onclick = async (e) => {
-      e.stopPropagation();
-      if (!confirm(`Remover "${song.title}" do repertório?`)) return;
-      await api(`/api/songs/${song.id}`, { method: "DELETE" });
-      loadSongs();
-    };
-    card.querySelector(".card-queue").onclick = (e) => {
-      e.stopPropagation();
-      const cur = songs.find((s) => s.id === song.id) || song;
-      if (!isReady(cur)) {
-        toast("essa ainda está em preparo — entra na fila quando ficar pronta");
-        return;
-      }
-      setQueue([...getQueue(), song.id]);
-      toast(`🎶 "${song.title}" entrou na fila da festa`);
-    };
-    card.onclick = () => {
-      const cur = songs.find((s) => s.id === song.id) || song;
-      if (!isReady(cur)) {
-        toast(PROCESSING.has(cur.status)
-          ? `🎛 "${cur.title}" ainda em preparo (${cur.progress || 0}%) — libera quando o sync estiver perfeito`
-          : `essa música precisa do preparo — usa o "preparar karaokê" no card`);
-        return;
-      }
-      openPlayer(cur);
-    };
-    // prévia: mouse parado ~3s no card toca um trechinho da música
-    card.onmouseenter = () => startPreviewSoon(song.id, card);
-    card.onmouseleave = () => stopPreview();
-    grid.appendChild(card);
-    const refs = {
-      card,
-      meta: card.querySelector(".card-meta"),
-      prog: card.querySelector(".prog"),
-      progFill: card.querySelector(".prog i"),
-    };
-    cardEls.set(song.id, refs);
-    updateCardStatus(song);
+      <div class="card-actions">
+        <button class="card-queue" title="Adicionar à fila da festa">➕</button>
+        <button class="card-play" title="Cantar!">▶</button>
+        <button class="card-del" title="Remover">✕</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-title"></div>
+      <div class="card-artist"></div>
+      <div class="card-meta"></div>
+      <div class="prog" hidden><i></i></div>
+    </div>`;
+  card.querySelector(".card-title").textContent = song.title || "Sem título";
+  card.querySelector(".card-artist").textContent = song.artist || "—";
+  const best = parseInt(localStorage.getItem("best:" + song.id) || "0");
+  const rec = card.querySelector(".card-record");
+  rec.textContent = best ? `🏆 recorde: ${best.toLocaleString("pt-BR")}` : "🏆 sem recorde — seja o 1º!";
+  rec.hidden = false;
+  card.querySelector(".card-del").onclick = async (e) => {
+    e.stopPropagation();
+    if (!await askConfirm(`Remover "${song.title}" do repertório?`,
+      "a música, as faixas separadas e a letra sincronizada vão embora junto")) return;
+    await api(`/api/songs/${song.id}`, { method: "DELETE" });
+    loadSongs();
+  };
+  card.querySelector(".card-queue").onclick = (e) => {
+    e.stopPropagation();
+    const cur = songs.find((s) => s.id === song.id) || song;
+    if (!isReady(cur)) {
+      toast("essa ainda está em preparo — entra na fila quando ficar pronta");
+      return;
+    }
+    setQueue([...getQueue(), song.id]);
+    toast(`🎶 "${song.title}" entrou na fila da festa`);
+  };
+  card.onclick = () => {
+    const cur = songs.find((s) => s.id === song.id) || song;
+    if (!isReady(cur)) {
+      toast(PROCESSING.has(cur.status)
+        ? `🎛 "${cur.title}" ainda em preparo (${cur.progress || 0}%) — libera quando o sync estiver perfeito`
+        : `essa música precisa do preparo — usa o "preparar karaokê" no card`);
+      return;
+    }
+    openPlayer(cur);
+  };
+  // prévia: mouse parado ~3s no card toca um trechinho da música
+  card.onmouseenter = () => startPreviewSoon(song.id, card);
+  card.onmouseleave = () => stopPreview();
+  cardEls.set(song.id, {
+    card,
+    meta: card.querySelector(".card-meta"),
+    prog: card.querySelector(".prog"),
+    progFill: card.querySelector(".prog i"),
+  });
+  updateCardStatus(song);
+  return card;
+}
+
+// modal de confirmação estilizado (nada de confirm() nativo quebrando o clima)
+function askConfirm(msg, detail) {
+  return new Promise((resolve) => {
+    $("confirm-msg").textContent = msg;
+    $("confirm-detail").textContent = detail || "";
+    $("confirm").hidden = false;
+    const done = (v) => { $("confirm").hidden = true; resolve(v); };
+    $("confirm-yes").onclick = () => done(true);
+    $("confirm-no").onclick = () => done(false);
   });
 }
 
@@ -949,8 +1000,8 @@ $("cfg-lyr-size").onchange = () => {
   localStorage.setItem("cfg:lyrSize", $("cfg-lyr-size").value);
   applyLyrSize($("cfg-lyr-size").value);
 };
-$("cfg-clear-records").onclick = () => {
-  if (!confirm("Zerar TODOS os recordes deste navegador?")) return;
+$("cfg-clear-records").onclick = async () => {
+  if (!await askConfirm("Zerar TODOS os recordes?", "apaga os recordes salvos neste navegador — sem volta")) return;
   Object.keys(localStorage).filter((k) => k.startsWith("best:"))
     .forEach((k) => localStorage.removeItem(k));
   toast("recordes zerados — bora fazer história de novo 🏆");
@@ -1569,6 +1620,7 @@ async function openPlayer(song) {
 }
 
 function closePlayer() {
+  if (editMode) exitEdit(false);
   enginePause();
   stopSources();
   disableMic();
@@ -1639,9 +1691,176 @@ document.addEventListener("keydown", (e) => {
   if ($("player-view").hidden) return;
   if (e.target.tagName === "INPUT") return;
   if (e.code === "Space") { e.preventDefault(); $("play-btn").click(); }
-  if (e.key === "Escape") closePlayer();
+  if (editMode && e.key === "Enter") { e.preventDefault(); editSet("t", getTime()); }
+  if (e.key === "Escape") {
+    if (editMode) { exitEdit(true); toast("edição descartada"); }
+    else closePlayer();
+  }
   if (e.key === "ArrowRight") engineSeek(getTime() + 5);
   if (e.key === "ArrowLeft") engineSeek(getTime() - 5);
+});
+
+// --------------------------------------------- editor humano de linhas
+// O último recurso DEFINITIVO: o que a IA não enxerga (sussurro que a separação
+// não capturou, harmonia suave, virada de andamento), a pessoa marca de ouvido.
+// Fluxo: ☰ → "editar tempos" → clica na linha → play → Enter quando o canto
+// começa. Ao salvar, tudo vai em tempo do áudio; o servidor zera o autoOffset
+// e o ajuste manual local é limpo — a letra editada vira a verdade absoluta.
+let editMode = false;
+let editSel = -1;
+const editShift = () => autoOffset - manualOffset; // linha + shift = áudio
+
+function enterEdit() {
+  if (!current) return;
+  if (mp.active) { toast("finalize o dueto/duelo antes de editar 😉", true); return; }
+  disableMic();
+  editMode = true;
+  $("edit-bar").hidden = false;
+  $("player-menu").hidden = true;
+  $("lyrics-scroller").hidden = false;
+  $("lyrics-fallback").hidden = true;
+  document.body.classList.add("editing");
+  selectEditLine(-1);
+}
+
+function exitEdit(discard) {
+  editMode = false;
+  editSel = -1;
+  $("edit-bar").hidden = true;
+  document.body.classList.remove("editing");
+  if (discard && current) renderLyrics(current.lyrics); // volta ao salvo
+}
+
+function selectEditLine(i) {
+  editSel = i;
+  lyrLines.forEach((l, j) => l.el.classList.toggle("edit-sel", j === i));
+  const has = i >= 0;
+  $("edit-tools").hidden = !has;
+  $("edit-text").hidden = !has;
+  $("edit-hint").hidden = has;
+  if (has) {
+    $("edit-text").value = lyrLines[i].text;
+    refreshEditTimes();
+  }
+}
+
+const fmtEdit = (s) => {
+  s = Math.max(0, s);
+  return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0").replace(".", ",")}`;
+};
+
+function refreshEditTimes() {
+  const l = lyrLines[editSel];
+  if (!l) return;
+  $("edit-t").textContent = fmtEdit(l.t + editShift());
+  $("edit-end").textContent = fmtEdit(l.end + editShift());
+}
+
+// define início/fim da linha selecionada a partir de um tempo NO DOMÍNIO DO ÁUDIO
+function editSet(field, audioT) {
+  const l = lyrLines[editSel];
+  if (!l) return;
+  l[field] = Math.max(0, +(audioT - editShift()).toFixed(2));
+  if (l.end < l.t + 0.3) {
+    if (field === "t") l.end = +(l.t + 0.3).toFixed(2);
+    else l.t = Math.max(0, +(l.end - 0.3).toFixed(2));
+  }
+  refreshEditTimes();
+}
+const editNudge = (field, d) => {
+  const l = lyrLines[editSel];
+  if (l) editSet(field, l[field] + editShift() + d);
+};
+
+$("et-now").onclick = () => editSet("t", getTime());
+$("ee-now").onclick = () => editSet("end", getTime());
+$("et-minus").onclick = () => editNudge("t", -0.1);
+$("et-plus").onclick = () => editNudge("t", +0.1);
+$("ee-minus").onclick = () => editNudge("end", -0.1);
+$("ee-plus").onclick = () => editNudge("end", +0.1);
+
+$("edit-play-line").onclick = () => {
+  const l = lyrLines[editSel];
+  if (!l) return;
+  engineSeek(Math.max(0, l.t + editShift() - 1.5));
+  if (!engineIsPlaying()) enginePlay();
+};
+
+$("edit-text").oninput = () => {
+  const l = lyrLines[editSel];
+  if (!l) return;
+  l.text = $("edit-text").value;
+  l.span.textContent = l.text || "…";
+};
+
+$("edit-del").onclick = () => {
+  const l = lyrLines[editSel];
+  if (!l) return;
+  l.el.remove();
+  lyrLines.splice(editSel, 1);
+  selectEditLine(-1);
+};
+
+$("edit-add").onclick = () => {
+  if (!editMode) return;
+  const t = +(getTime() - editShift()).toFixed(2);
+  const line = { t, end: +(t + 3).toFixed(2), text: "" };
+  let i = lyrLines.findIndex((l) => l.t > t);
+  if (i < 0) i = lyrLines.length;
+  const el = document.createElement("div");
+  el.className = "lyr-line";
+  const span = document.createElement("span");
+  span.className = "fill";
+  span.textContent = "…";
+  el.appendChild(span);
+  line.el = el;
+  line.span = span;
+  const scroller = $("lyrics-scroller");
+  scroller.insertBefore(el, scroller.children[i] || null);
+  lyrLines.splice(i, 0, line);
+  selectEditLine(i);
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  $("edit-text").focus();
+};
+
+$("edit-save").onclick = async () => {
+  const shift = editShift();
+  const lines = lyrLines
+    .map((l) => ({ t: +(l.t + shift).toFixed(2), end: +(l.end + shift).toFixed(2), text: l.text.trim() }))
+    .filter((l) => l.text);
+  if (!lines.length) { toast("a letra ficou vazia — nada salvo", true); return; }
+  $("edit-save").disabled = true;
+  try {
+    const res = await api(`/api/lines/${current.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lines }),
+    });
+    current.lyrics = res;
+    autoOffset = 0;
+    manualOffset = 0;
+    localStorage.removeItem("lyroff:" + current.id);
+    updateOffsetLabel();
+    setDiffBadge(res);
+    exitEdit(false);
+    renderLyrics(res);
+    loadSongs();
+    toast("letra salva — agora ela obedece você 🖊");
+  } catch (err) {
+    toast("erro ao salvar: " + err.message, true);
+  } finally {
+    $("edit-save").disabled = false;
+  }
+};
+
+$("edit-cancel").onclick = () => { exitEdit(true); toast("edição descartada"); };
+$("edit-btn").onclick = enterEdit;
+
+$("lyrics-scroller").addEventListener("click", (e) => {
+  if (!editMode) return;
+  const el = e.target.closest(".lyr-line");
+  if (!el) return;
+  selectEditLine(lyrLines.findIndex((l) => l.el === el));
 });
 
 // ---------------------------------------------------------------- boot

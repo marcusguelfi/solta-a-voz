@@ -1,0 +1,11 @@
+# Solta a Voz no servidor doméstico:  docker compose up -d --build
+# Depois abra http://IP-DO-SERVIDOR:8777 (o preparo usa bastante CPU).
+services:
+  karaoke:
+    build: .
+    container_name: solta-a-voz
+    ports:
+      - "8777:8777"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

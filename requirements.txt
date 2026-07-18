@@ -1,6 +1,15 @@
+# web + biblioteca
 fastapi
 uvicorn
 yt-dlp
 mutagen
 python-multipart
 pytest
+
+# IA (CPU): separação de voz, forced alignment e melodia de referência
+# ATENÇÃO: Python 3.11–3.13 apenas — 3.14 ainda quebra as wheels (diffq etc.)
+audio-separator[cpu]
+stable-ts
+soundfile
+librosa
+numpy

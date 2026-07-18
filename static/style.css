@@ -171,20 +171,31 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 .pill.prepare { color: var(--amber); cursor: pointer; border: 1px dashed #4b3568; }
 .pill.prepare:hover { background: #3c2b52; }
 @keyframes pulse { 50% { opacity: .45; } }
+/* ações do card: barra na base da capa — ▶ no centro, ➕ e ✕ nos lados */
+.cover-wrap { position: relative; }
+.card-actions {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 30px 10px 10px;
+  background: linear-gradient(180deg, transparent, rgba(11,8,18,.88));
+  opacity: 0; transition: opacity .18s;
+}
+.song-card:hover .card-actions { opacity: 1; }
 .card-play {
-  position: absolute; top: 10px; right: 10px; width: 44px; height: 44px; border-radius: 50%;
-  background: var(--grad); border: none; color: #1b0510; font-size: 1.1rem; cursor: pointer;
-  opacity: 0; transform: scale(.8); transition: opacity .18s, transform .18s;
+  width: 48px; height: 48px; border-radius: 50%;
+  background: var(--grad); border: none; color: #1b0510; font-size: 1.15rem; cursor: pointer;
+  transform: scale(.85); transition: transform .18s;
   display: flex; align-items: center; justify-content: center;
 }
-.song-card:hover .card-play { opacity: 1; transform: scale(1); }
-.card-del {
-  position: absolute; top: 10px; left: 10px; width: 32px; height: 32px; border-radius: 50%;
-  background: rgba(11,8,18,.75); border: 1px solid #3c2b52; color: var(--ink-dim);
-  cursor: pointer; opacity: 0; transition: opacity .18s, color .15s;
+.song-card:hover .card-play { transform: scale(1); }
+.card-play:hover { transform: scale(1.1); }
+.card-del, .card-queue {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(11,8,18,.8); border: 1px solid #3c2b52; color: var(--ink-dim);
+  font-size: .95rem; cursor: pointer; transition: color .15s, border-color .15s;
+  display: flex; align-items: center; justify-content: center;
 }
-.song-card:hover .card-del { opacity: 1; }
-.card-del:hover { color: var(--magenta); }
+.card-del:hover { color: var(--magenta); border-color: var(--magenta); }
 
 /* fila da festa */
 .queue-bar {
@@ -207,13 +218,7 @@ main { max-width: 1060px; margin: 0 auto; padding: 56px 28px 90px; }
 .q-x:hover { color: var(--magenta); }
 .q-play { padding: 9px 16px; }
 
-.card-queue {
-  position: absolute; top: 62px; right: 10px; width: 44px; height: 44px; border-radius: 50%;
-  background: rgba(11,8,18,.8); border: 1px solid #3c2b52; color: var(--amber);
-  font-size: 1rem; cursor: pointer;
-  opacity: 0; transform: scale(.8); transition: opacity .18s, transform .18s;
-}
-.song-card:hover .card-queue { opacity: 1; transform: scale(1); }
+.card-queue:hover { color: var(--amber); border-color: var(--amber); }
 .song-card.locked .card-queue { display: none; }
 
 /* música indisponível até o preparo completo */
@@ -259,12 +264,16 @@ main.with-sidebar { margin-left: 216px; max-width: none; padding: 40px 34px 90px
 
 /* modais que vivem no BODY (fora do player fixed): precisam ser fixed na
    viewport, senão cobrem o documento inteiro e "rolam" com a página */
-#mp-setup, #settings {
+#mp-setup, #settings, #confirm {
   position: fixed; inset: 0;
 }
-#mp-setup .results-card, #settings .results-card {
+#mp-setup .results-card, #settings .results-card, #confirm .results-card {
   max-height: 92vh; overflow-y: auto;
 }
+.confirm-card { max-width: 420px; }
+.confirm-msg { font: 700 1.05rem var(--font-display); margin-top: 6px; }
+.confirm-detail { color: var(--ink-dim); font-size: .85rem; margin-top: 6px; }
+.confirm-danger { background: linear-gradient(135deg, #ff2d78, #b3123f); }
 
 /* configurações */
 .cfg-card { max-width: 480px; text-align: left; }
@@ -654,4 +663,52 @@ input[type="range"]::-moz-range-thumb {
   main { padding: 34px 18px 70px; }
   .player-top { padding: 14px 16px; }
   .controls { padding: 10px 16px 16px; }
+}
+
+/* ---------- gavetas de gênero estilo Steam ---------- */
+.song-grid.as-shelves { display: block; }
+.shelf { margin-bottom: 30px; }
+.shelf-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.shelf-head h3 {
+  font: 800 1.15rem var(--font-display); text-transform: capitalize; color: var(--ink);
+}
+.shelf-count { color: var(--ink-dim); font-size: .8rem; flex: 1; }
+.shelf-nav { display: flex; gap: 6px; }
+.shelf-row {
+  display: flex; gap: 14px; overflow-x: auto; padding: 4px 2px 12px;
+  scroll-snap-type: x proximity; scrollbar-width: thin;
+  scrollbar-color: #3c2b52 transparent;
+}
+.shelf-row .song-card { flex: 0 0 190px; scroll-snap-align: start; }
+
+/* ---------- editor humano de linhas ---------- */
+.edit-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  margin: 0 18px 10px; padding: 10px 14px;
+  background: color-mix(in srgb, var(--bg-card) 90%, transparent);
+  border: 1px solid #3c2b52; border-radius: 14px; font-size: .85rem;
+}
+.edit-hint { color: var(--ink-dim); }
+.edit-hint b { color: var(--amber); }
+.edit-text {
+  flex: 1 1 220px; min-width: 160px; background: var(--bg-raised);
+  border: 1px solid #32244a; color: var(--ink); border-radius: 10px;
+  padding: 8px 12px; font: inherit;
+}
+.edit-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.edit-group {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--ink-dim); white-space: nowrap;
+}
+.edit-group b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.edit-always { margin-left: auto; }
+.edit-save { padding: 8px 14px; }
+.edit-btn { width: 100%; margin-top: 8px; }
+body.editing .lyr-line { cursor: pointer; border-radius: 10px; }
+body.editing .lyr-line:hover {
+  background: color-mix(in srgb, var(--magenta) 12%, transparent);
+}
+.lyr-line.edit-sel {
+  outline: 2px solid var(--magenta); outline-offset: 2px; border-radius: 10px;
+  background: color-mix(in srgb, var(--magenta) 10%, transparent);
 }

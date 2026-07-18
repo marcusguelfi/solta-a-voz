@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 
@@ -122,6 +122,7 @@
       <b id="off-val">+0,0s</b>
       <button id="off-plus" class="btn-mini" title="letra atrasada? adianta 0,5s">+0,5s</button>
     </div>
+    <button id="edit-btn" class="btn-mini edit-btn" title="Ajuste fino, linha por linha — para os casos que a IA não pega">✏️ editar tempos da letra</button>
   </div>
 
   <section id="lyrics-box" class="lyrics-box">
@@ -139,6 +140,32 @@
       <pre id="plain-lyrics" class="plain-lyrics" hidden></pre>
     </div>
   </section>
+
+  <div id="edit-bar" class="edit-bar" hidden>
+    <span id="edit-hint" class="edit-hint">✏️ clique numa linha da letra · dê play e aperte <b>Enter</b> (ou "⏱ agora") quando o canto começar</span>
+    <input id="edit-text" class="edit-text" placeholder="texto da linha" spellcheck="false" hidden>
+    <div id="edit-tools" class="edit-tools" hidden>
+      <span class="edit-group">início <b id="edit-t">0:00,0</b>
+        <button id="et-now" class="btn-mini" title="marcar início = posição atual (Enter)">⏱ agora</button>
+        <button id="et-minus" class="btn-mini">−0,1</button>
+        <button id="et-plus" class="btn-mini">+0,1</button>
+      </span>
+      <span class="edit-group">fim <b id="edit-end">0:00,0</b>
+        <button id="ee-now" class="btn-mini" title="marcar fim = posição atual">⏱ agora</button>
+        <button id="ee-minus" class="btn-mini">−0,1</button>
+        <button id="ee-plus" class="btn-mini">+0,1</button>
+      </span>
+      <span class="edit-group">
+        <button id="edit-play-line" class="btn-mini" title="tocar 1,5s antes desta linha">▶ ouvir</button>
+        <button id="edit-del" class="btn-mini" title="apagar esta linha">🗑</button>
+      </span>
+    </div>
+    <span class="edit-group edit-always">
+      <button id="edit-add" class="btn-mini" title="nova linha na posição atual do áudio">＋ linha</button>
+      <button id="edit-save" class="btn-accent edit-save">💾 salvar</button>
+      <button id="edit-cancel" class="btn-ghost">descartar</button>
+    </span>
+  </div>
 
   <footer class="controls">
     <div class="transport">
@@ -190,8 +217,8 @@
   <div class="results-card cfg-card">
     <h2 class="mp-setup-title">⚙️ Configurações</h2>
     <label class="cfg-row">
-      <span>🎧 volume da prévia <b id="cfg-pv-val">50%</b></span>
-      <input type="range" id="cfg-preview-vol" min="0" max="100" value="50">
+      <span>🎧 volume da prévia <b id="cfg-pv-val">15%</b></span>
+      <input type="range" id="cfg-preview-vol" min="0" max="100" value="15">
     </label>
     <label class="cfg-row">
       <span>⏱ antecipação da letra <b id="cfg-lead-val">0,45s</b></span>
@@ -242,9 +269,22 @@
   </div>
 </div>
 
+<!-- ======================= CONFIRMAÇÃO ======================= -->
+<div id="confirm" class="results" hidden>
+  <div class="results-card confirm-card">
+    <h2 class="mp-setup-title">🗑 Tem certeza?</h2>
+    <p id="confirm-msg" class="confirm-msg"></p>
+    <p id="confirm-detail" class="confirm-detail"></p>
+    <div class="res-actions">
+      <button id="confirm-yes" class="btn-accent confirm-danger">sim, remover</button>
+      <button id="confirm-no" class="btn-ghost">cancelar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts" class="toasts"></div>
 <audio id="audio" crossorigin="anonymous" preload="auto"></audio>
 
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

@@ -146,20 +146,59 @@ interrompidos por restart voltam pra fila no boot).
   só considera playlist real (`/playlist`, `/sets/`, ou `list=` não-RD). Import
   em thread daemon separada, teto `MAX_PLAYLIST=50`; download reusa `_download_one`.
 
-## Roadmap (atualizado 2026-07-13 — prioridades do Marcus, ordem sugerida)
+## ROADMAP (reorganizado 2026-07-18 — fases definidas pelo Marcus)
 
-### Prioridade 1 — Multiplayer
-- ✅ (2026-07-14) **Dueto & Duelo local** (frontend puro). Botão "👥 dueto &
-  duelo" na biblioteca → modal de setup (modo + 2 jogadores nome/emoji,
-  salvos em localStorage `mp:players`) → sessão "armada" → clicar numa música
-  pronta abre em modo mp. As frases se revezam por verso (`assignOwners`,
-  gap-based: troca no silêncio > 2,5s ou a cada 6 frases), cada frase pontua
-  pro dono via `finalizeLine` (roteia pra `mp.totals[owner]`). Dueto = placar
-  combinado + nota; Duelo = dois placares + vencedor (`showMpResults`). Estado
-  no objeto `mp`; um mic só (passa entre os dois). Linhas com tint por dono
-  (`data-owner` + `--p0`/`--p1`), chip do turno destacado, indicador "🎤 nome".
-- Próximo: festa LAN (celular como controle) → duelo online (relay WebSocket).
-  Ver detalhes lá embaixo.
+### FASE 1 — O CORE: música entra, sync sai PERFEITO (prioridade absoluta)
+O produto é: colocar música → auto-ajuste da letra do jeito mais eficiente
+possível. "2% de erro em 500 músicas já é muita coisa — frustra, e isso eu não
+quero pro app."
+1. **Pesquisa AMPLA de sincronização** (pedido 2026-07-18): não só projetos
+   parecidos — estudar TUDO que os programas de karaokê (UltraStar, Karafun,
+   SingStar, YokeeKaraoke, AudioShake etc.) fazem pra sincronizar: formatos
+   (UltraStar .txt nota-a-nota!), pipelines, heurísticas de tempo, nuances.
+   Sem jogar fora o que já temos — aprimorar em cima.
+2. **Melhor fonte + junção de letras**: multi-fonte com ranking pela
+   transcrição (LRCLIB ✅, letras.mus.br ✅ 2026-07-18, lyrics.ovh ✅; falta
+   Genius/Musixmatch e MESCLAR fontes — pegar estrofe que falta numa da outra).
+3. **Anchor-matching por linha** (upgrade nomadkaraoke): apontar A LINHA errada
+   e corrigir só ela, não a música inteira.
+4. **Gráfico de tom preciso pra CANTORIA DO USUÁRIO**: revisar pipeline do mic
+   (autocorrelação atual) — captar com precisão o que a pessoa canta; latência,
+   oitava, vibrato. O lane é o feedback central do jogo.
+5. **Dedup pós-extensão** (Mulher de Fases 172s: OVERLAPs de linha velha
+   espremida onde a transcrição inseriu novas).
+
+### FASE 2 — UX/Front (destravada em 2026-07-18)
+- ✅ (2026-07-18) Card: ações na base da capa — ▶ centro, ➕ ✕ lados.
+- ✅ (2026-07-18) Modal de exclusão estilizado (fim do confirm() nativo).
+- ✅ (2026-07-18) Gavetas de gênero estilo Steam (prateleiras horizontais).
+- ✅ (2026-07-18) **Editor humano de linhas** no player (☰ → editar tempos):
+  clicar linha → Enter marca início na hora, nudges ±0,1s, ＋linha pra intro
+  perdida (caso Toxicity sussurro), salvar → PUT /api/lines (alignMethod
+  "manual", autoOffset zerado). O human-in-the-loop dos 2% restantes.
+- ✅ (2026-07-18) Prévia default 15%.
+- **Tirar emojis da UI** → ícones SVG que mudam de cor e combinam com a proposta.
+- **Botão de esconder o menu lateral** + revisão geral de responsividade
+  (outras dimensões) e das opções do menu.
+- **Temas de cores** nas configurações.
+- Modo telão/fullscreen; nome das notas no lane.
+
+### FASE FUTURA (ordem provável)
+1. **Aviso de letra não-sincada** no card/player → atalho pro editor humano.
+2. **Fila de processamento estilo Steam** (como a lista de downloads): ver a
+   fila fora do repertório, reordenar (escolher a próxima), pausar, cancelar.
+3. **Login/usuários distintos** (recordes por pessoa; base pro online).
+4. Festa LAN (celular como controle via QR; gotcha mkcert) → duelo online
+   (relay WebSocket) — detalhes na seção Multiplayer abaixo.
+5. Pontuação de ritmo pra rap; GPU DirectML; backup/restore da data/.
+6. **Disponibilizar na internet** (Coolify/Portainer — Dockerfile ✅
+   2026-07-18; exposição pública fica pra MUITO depois, palavras do Marcus).
+
+### Multiplayer local (feito) — referência
+- ✅ (2026-07-14) **Dueto & Duelo local** (frontend puro): modal de setup,
+  frases revezadas por verso (`assignOwners` gap-based), pontos por dono
+  (`finalizeLine` → `mp.totals`), placar combinado (dueto) ou vencedor (duelo).
+  Estado no objeto `mp`; um mic só. Linhas com tint por dono.
 
 ### REGRA DE OURO do sync (2026-07-15) + pesquisa de referência
 
@@ -353,25 +392,35 @@ mesma ordem → casamento id↔nome validado com 12/12 âncoras conhecidas. Letr
 Lição: log com nomes salvou tudo — logs verbosos são backup acidental. Backup
 REAL da data/ segue no roadmap (agora com prioridade máxima).
 
-## Pendências imediatas (pedidos do Marcus, próxima sessão COMEÇA por aqui)
+## Pendências imediatas (próxima sessão COMEÇA por aqui)
 
-1. **Gavetas de gênero estilo STEAM** (print de referência mostrado): fileiras
-   horizontais por gênero com capas grandes roláveis, cabeçalho com nome do
-   gênero + contagem + ordenação própria. Substitui os chips atuais.
-2. **Card**: ações na parte de baixo, acima do título — ▶ central, ➕ e ✕ dos
-   lados. (pedido 2×, ainda não feito!)
-3. Confirmação de exclusão como modal estilizado (hoje é confirm() nativo).
-4. Pós-relyrics: re-testar as reportadas (Take Me Out pausa longa; System vários;
-   Mulher de Fases começo+violino; Toxicity intro) — fix_reported.py furou a
-   fila com whisper+extensão; se restar dessincronia APÓS whisper, aí é caso
-   real pro anchor-matching por linha (upgrade planejado do audit).
-5b. **Caso-limite descoberto (Toxicity)**: intro SUSSURRADA ("Conversion,
-   software version 7.0") tem energia 0% no stem — invisível pra extensão e
-   pra regra de ouro. Soluções candidatas: limiar adaptativo só pra região
-   pré-1ª-linha, ou (melhor) o editor manual de linhas — a IA não transcreve
-   o que a separação não capturou.
-5. Take Me Out muda de andamento no meio (tempo change) — offset global nunca
-   serve; garantir que whisper+reconcile rodou nela; é o caso de teste perfeito.
+1. **Ícones SVG no lugar dos emojis** da UI (mudam de cor, combinam com a
+   proposta) + botão de esconder sidebar + responsividade (Fase 2).
+2. **Fila de ~56 músicas** adicionadas pela família em 2026-07-18 processando;
+   conferir depois: letras (o fallback letras.mus.br já estava ativo?), sync,
+   gêneros. A do Hyldon sumiu da biblioteca — se readicionarem, o fallback pega.
+3. Re-testar reportadas pós-whisper (Aerials 1ª linha → EDITOR HUMANO resolve
+   agora; Take Me Out 190s FROUXO; Toxicity intro sussurrada → editor ＋linha).
+4. Anchor-matching por linha (Fase 1.3) — apontar/corrigir A LINHA errada.
+5. Take Me Out muda de andamento no meio — caso de teste perfeito do item 4.
+6. Testar o Dockerfile num docker real (não testado — máquina local sem Docker
+   no PATH); `docker compose up -d --build` no servidor doméstico.
+
+### Feito em 2026-07-18 (contexto rápido)
+- Editor humano de linhas (front + PUT /api/lines) — ver Fase 2.
+- Cards com ações na base, modal de exclusão, gavetas Steam, prévia 15%.
+- Fallback de letras: letras.mus.br (busca solr JSONP `LetrasSug(...)` +
+  scrape `div.lyric-original`, valida por overlap de tokens normalizados) e
+  lyrics.ovh; texto puro flui pro whisper-align que cria o sync do zero
+  (`align_lyrics_to_vocals` já aceitava `plain`). `fetch_plain_fallback`.
+- setup.bat robusto: aceita py 3.11–3.13, RECUSA 3.14 com instrução (causa
+  provável da falha no outro PC: python.org hoje instala 3.14 por padrão);
+  requirements.txt agora é fonte única (inclui as deps de IA); erros com
+  mensagem e pause em cada etapa. start.bat avisa se .venv não existe.
+- Dockerfile (python:3.12-slim + ffmpeg apt + torch CPU do índice cpu) +
+  docker-compose (volume ./data, KARAOKE_HOST=0.0.0.0, cache whisper no
+  volume via XDG_CACHE_HOME) + .dockerignore. main.py: host/porta por env
+  KARAOKE_HOST/KARAOKE_PORT (default 127.0.0.1:8777).
 
 ## Gotchas de desenvolvimento (workflow — economizam tempo)
 

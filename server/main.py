@@ -12,11 +12,13 @@ passa por _update_entry/_add_entry sob _lock; leituras são unlocked.
 Arquivos por música: data/media/{id}.ext (original), data/stems/{id}/vocals.mp3 +
 instrumental.mp3 + pitch.json. library.json guarda metadata + cache da letra + status.
 """
+import html
 import json
 import logging
 import os
 import queue
 import re
+import unicodedata
 import shutil
 import subprocess
 import threading
@@ -336,6 +338,76 @@ def fetch_lyrics(artist: str, title: str, album: str, duration: float) -> dict |
     return None
 
 
+def _norm_txt(s: str) -> str:
+    s = unicodedata.normalize("NFKD", (s or "").lower())
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9 ]", " ", s)
+
+
+def fetch_letras_mus(artist: str, title: str) -> str | None:
+    """letras.mus.br: busca (solr do próprio site) + página da letra. Forte em
+    MPB/BR, que é onde o LRCLIB mais falha. Volta texto puro (sem timestamps)."""
+    q = urllib.parse.quote(f"{first_artist(artist)} {clean_search_title(title)}".strip())
+    req = urllib.request.Request(f"https://solr.sscdn.co/letras/m1/?q={q}",
+                                 headers={"User-Agent": LRCLIB_UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        raw = r.read().decode("utf-8", "replace")
+    data = json.loads(raw[raw.index("(") + 1:raw.rindex(")")])  # JSONP -> JSON
+    want = set(_norm_txt(f"{artist} {title}").split())
+    doc = None
+    for d in data.get("response", {}).get("docs", []):
+        if not d.get("url"):
+            continue  # docs de álbum/artista não têm página de letra
+        got = set(_norm_txt(f"{d.get('art', '')} {d.get('txt', '')}").split())
+        if len(want & got) >= max(2, len(want) // 3):
+            doc = d
+            break
+    if not doc:
+        return None
+    req = urllib.request.Request(
+        f"https://www.letras.mus.br/{doc['dns']}/{doc['url']}/",
+        headers={"User-Agent": LRCLIB_UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        page = r.read().decode("utf-8", "replace")
+    m = re.search(r'<div class="lyric-original">(.*?)</div>', page, re.S)
+    if not m:
+        return None
+    lines = []
+    for verse in re.findall(r"<p>(.*?)</p>", m.group(1), re.S):
+        for piece in re.split(r"<br\s*/?>", verse):
+            txt = html.unescape(re.sub(r"<[^>]+>", "", piece)).strip()
+            if txt:
+                lines.append(txt)
+        lines.append("")  # linha em branco separa estrofes, como no LRCLIB
+    text = "\n".join(lines).strip()
+    return text if len(text) > 80 else None
+
+
+def fetch_lyrics_ovh(artist: str, title: str) -> str | None:
+    url = ("https://api.lyrics.ovh/v1/"
+           + urllib.parse.quote(first_artist(artist) or artist)
+           + "/" + urllib.parse.quote(clean_search_title(title) or title))
+    req = urllib.request.Request(url, headers={"User-Agent": LRCLIB_UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        text = (json.loads(r.read().decode()).get("lyrics") or "").replace("\r\n", "\n").strip()
+    return text if len(text) > 80 else None
+
+
+def fetch_plain_fallback(artist: str, title: str) -> str | None:
+    """Rede de segurança quando o LRCLIB não tem a letra. Texto puro basta:
+    o forced alignment (whisper) cria o sync do zero a partir dele — esperar
+    o preparo inteiro e ficar sem cantar é o pior resultado possível."""
+    for fn in (fetch_letras_mus, fetch_lyrics_ovh):
+        try:
+            text = fn(artist, title)
+            if text:
+                logging.info("letra via fallback %s: %s - %s", fn.__name__, artist, title)
+                return text
+        except Exception:
+            continue
+    return None
+
+
 def search_and_store_lyrics(sid: str, artist: str | None = None,
                             title: str | None = None) -> dict:
     """Busca letra no LRCLIB, calcula dificuldade e salva no cache da entrada."""
@@ -345,6 +417,11 @@ def search_and_store_lyrics(sid: str, artist: str | None = None,
     s_title = title or entry.get("title") or ""
     hit = fetch_lyrics(s_artist, s_title, entry.get("album") or "",
                        entry.get("duration") or 0)
+    if not hit:
+        plain = fetch_plain_fallback(s_artist, s_title)
+        if plain:
+            hit = {"plainLyrics": plain, "syncedLyrics": None,
+                   "artistName": s_artist, "trackName": s_title}
     if not hit:
         result = {"found": False, "synced": None, "plain": None, "difficulty": None}
     else:
@@ -1456,6 +1533,36 @@ def realign(sid: str):
             "reconciled": result.get("reconciled"), "matched": result.get("matched")}
 
 
+class LinesBody(BaseModel):
+    lines: list[dict]
+
+
+@app.put("/api/lines/{sid}")
+def put_lines(sid: str, body: LinesBody):
+    """Editor humano de linhas: recebe a letra editada (t/end/text) e salva.
+    É o último recurso definitivo — o que a IA não separa, a pessoa marca."""
+    entry = _get_entry(sid)
+    lines = []
+    for ln in body.lines:
+        text = str(ln.get("text", "")).strip()
+        if not text:
+            continue
+        t = round(float(ln["t"]), 2)
+        end = round(float(ln.get("end") or t + 2), 2)
+        lines.append({"t": t, "end": max(end, t + 0.3), "text": text})
+    if len(lines) < 1:
+        raise HTTPException(400, "letra vazia")
+    lines.sort(key=lambda l: l["t"])
+    new_synced = "\n".join(
+        f"[{int(l['t'] // 60):02d}:{l['t'] % 60:05.2f}] {l['text']}" for l in lines)
+    lyr = entry.get("lyrics") or {}
+    result = {**lyr, "found": True, "lines": lines, "synced": new_synced,
+              "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
+              "alignMethod": "manual"}
+    _update_entry(sid, lyrics=result, autoOffset=0)
+    return result
+
+
 @app.get("/api/pitch/{sid}")
 def get_pitch(sid: str):
     _get_entry(sid)
@@ -1546,4 +1653,6 @@ if __name__ == "__main__":
     MEDIA.mkdir(parents=True, exist_ok=True)
     STEMS.mkdir(parents=True, exist_ok=True)
     MODELS.mkdir(parents=True, exist_ok=True)
-    uvicorn.run(app, host="127.0.0.1", port=8777)
+    # KARAOKE_HOST=0.0.0.0 para Docker/servidor doméstico; padrão só local
+    uvicorn.run(app, host=os.environ.get("KARAOKE_HOST", "127.0.0.1"),
+                port=int(os.environ.get("KARAOKE_PORT", "8777")))
