@@ -165,14 +165,26 @@ quero pro app."
    - **UltrastarCreatorTool** (retotito): separação + WhisperX + pitch + EDITOR
      piano-roll completo como etapa final. 3ª confirmação independente:
      auto-pipeline + editor humano É o padrão da indústria/cena.
-   - Derivações pro nosso pipeline (fazer):
-     a) **Realce palavra-a-palavra**: stable-ts JÁ dá word timestamps — hoje
-        jogamos fora tudo menos t/end da linha. Guardar words e pintar o fill
-        da linha palavra por palavra = karaokê profissional de verdade.
-     b) **Quantização à tonalidade** no pitch.json (detectar key com librosa,
-        snap da melodia de referência) — lane mais limpo, pontuação mais justa.
-     c) **Snap de início de linha à grade de beats** (librosa beat track,
-        ±100ms) — mata jitter residual e dá sensação "no ritmo".
+   - Derivações pro nosso pipeline:
+     a) ✅ (2026-07-18) **Realce palavra-a-palavra**: whisper_align_lines
+        guarda `words: [[dt, dEnd, palavra], ...]` POR LINHA, **relativos ao
+        início da linha** — sobrevivem de graça a reconcile/offset/editor
+        (o put_lines reanexa por texto). reconcile_with_lrc REMOVE words de
+        linha que voltou pro trilho (tempo não veio do canto). No front,
+        fillPercent() anda pelo comprimento em caracteres de cada palavra;
+        sem words (letra antiga/interpolada/auto) cai pra linear. Medido em
+        João e Maria: 34% vs 15% linear em 0,2s — segue a cadência real.
+        Só músicas (re)alinhadas daqui pra frente ganham words.
+     b) ✅ (2026-07-18) **Quantização à la UltraSinger no lane** (parcial):
+        a nota EXIBIDA de cada segmento é Math.round(média) — semitom mais
+        próximo, lane limpo sem vibrato serrilhando. SÓ desenho; pontuação
+        segue no midi cru. Falta a versão completa: detectar TONALIDADE
+        (librosa) e snap à escala, aí sim vale levar pra pontuação.
+     c) ❌ **Snap à grade de beats — decidido NÃO fazer por ora**: nosso erro
+        mediano medido (20-50ms/linha) é MELHOR que a resolução de uma grade
+        de semicolcheia (~125ms a 120bpm), e canto real começa fora do beat
+        o tempo todo (anacruse/síncope) — o snap consertaria o que não está
+        quebrado e quebraria o que está certo. Rever só se aparecer jitter.
    - Falta pesquisar: KaraFun/CDG (formatos comerciais), Musixmatch sync
      (crowdsourcing por tap), apps mobile (Smule) — 2ª rodada.
 2. **Melhor fonte + junção de letras**: multi-fonte com ranking pela
@@ -191,7 +203,8 @@ quero pro app."
 - ✅ (2026-07-18) Modal de exclusão estilizado (fim do confirm() nativo).
 - ✅ (2026-07-18) Gavetas de gênero estilo Steam (prateleiras horizontais).
 - ✅ (2026-07-18) **Arrasto com o mouse nas gavetas** (makeDragScroll) + botão
-  "▦ todos juntos"/"🗂 por gênero" (libFilter.view, localStorage cfg:libView).
+  "▦ todos juntos"/"🗂 por gênero" (libFilter.view, localStorage cfg:libView;
+  default = "todos juntos" desde 2026-07-18, pedido do Marcus).
   Gotchas do drag: (1) clique pós-arrasto engolido em CAPTURE senão abre
   música sem querer; (2) scroll-snap desligado durante o arrasto (classe
   .dragging) senão pula; (3) -webkit-user-drag:none nas capas senão o drag

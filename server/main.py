@@ -789,7 +789,7 @@ def guess_language(text: str) -> str | None:
     return best if scores[best] >= 2 else None  # incerto -> deixa o Whisper decidir
 
 
-def _regroup_words_to_lines(result, line_texts: list[str]) -> list[tuple[float, float]] | None:
+def _regroup_words_to_lines(result, line_texts: list[str]) -> list[tuple] | None:
     """Se os segmentos não baterem com as linhas, remapeia pelas palavras
     (o align preserva a ordem exata do texto fornecido)."""
     words = [w for seg in result.segments for w in seg.words]
@@ -800,8 +800,26 @@ def _regroup_words_to_lines(result, line_texts: list[str]) -> list[tuple[float, 
     for c in counts:
         chunk = words[i:i + c]
         i += c
-        out.append((float(chunk[0].start), float(chunk[-1].end)))
+        out.append((float(chunk[0].start), float(chunk[-1].end), chunk))
     return out
+
+
+def _line_words(chunk, start: float) -> list | None:
+    """Timestamps POR PALAVRA, relativos ao início da linha (padrão UltraStar:
+    sílaba a sílaba; aqui palavra a palavra). Relativos = sobrevivem de graça a
+    qualquer deslocamento da linha (reconcile, offset, editor humano)."""
+    if not chunk:
+        return None
+    words = []
+    for w in chunk:
+        try:
+            ws, we = float(w.start), float(w.end)
+        except (TypeError, ValueError):
+            return None
+        text = (getattr(w, "word", "") or "").strip()
+        if we > ws >= 0 and text:
+            words.append([round(ws - start, 2), round(we - start, 2), text])
+    return words if len(words) >= 2 else None
 
 
 def _interpolate_bad_lines(lines: list[dict], good: list[int]) -> None:
@@ -848,18 +866,23 @@ def whisper_align_lines(sid: str, line_texts: list[str]) -> list[dict] | None:
             continue
         segs = list(result.segments)
         if len(segs) == len(line_texts):
-            spans = [(float(s.start), float(s.end)) for s in segs]
+            spans = [(float(s.start), float(s.end), list(s.words or [])) for s in segs]
         else:
             spans = _regroup_words_to_lines(result, line_texts)
             if spans is None:
                 continue
         lines, good = [], []
-        for i, ((start, end), txt) in enumerate(zip(spans, line_texts)):
+        for i, ((start, end, chunk), txt) in enumerate(zip(spans, line_texts)):
             valid = end > start > 0
             if valid:
                 good.append(i)
-            lines.append({"t": round(start, 2), "end": round(end, 2),
-                          "text": txt, "_ok": valid})
+            ln = {"t": round(start, 2), "end": round(end, 2),
+                  "text": txt, "_ok": valid}
+            if valid:
+                words = _line_words(chunk, start)
+                if words:
+                    ln["words"] = words
+            lines.append(ln)
         if len(good) < max(4, len(lines) * 0.5):
             continue  # fraco demais mesmo pra salvar — tenta próxima variante
         _interpolate_bad_lines(lines, good)
@@ -1025,6 +1048,7 @@ def reconcile_with_lrc(lines: list[dict], lrc: list[tuple[float, str]]) -> dict:
             nxt = (lrc[i + 1][0] + offset) if i + 1 < n else expected + 5
             lines[i]["t"] = round(expected, 2)
             lines[i]["end"] = round(max(min(expected + 8, nxt - 0.05), expected + 0.6), 2)
+            lines[i].pop("words", None)  # tempo veio do trilho, não do canto
             fixed += 1
     for i in range(len(lines) - 1):  # fim nunca passa do início da próxima
         if lines[i]["end"] > lines[i + 1]["t"] - 0.02:
@@ -1542,6 +1566,12 @@ def put_lines(sid: str, body: LinesBody):
     """Editor humano de linhas: recebe a letra editada (t/end/text) e salva.
     É o último recurso definitivo — o que a IA não separa, a pessoa marca."""
     entry = _get_entry(sid)
+    # palavras são relativas ao início da linha: sobrevivem à edição de tempo —
+    # basta reanexar por texto (some só se o texto da linha mudou)
+    old_words: dict[str, list] = {}
+    for old in ((entry.get("lyrics") or {}).get("lines") or []):
+        if old.get("words") and old.get("text") not in old_words:
+            old_words[old["text"]] = old["words"]
     lines = []
     for ln in body.lines:
         text = str(ln.get("text", "")).strip()
@@ -1549,7 +1579,10 @@ def put_lines(sid: str, body: LinesBody):
             continue
         t = round(float(ln["t"]), 2)
         end = round(float(ln.get("end") or t + 2), 2)
-        lines.append({"t": t, "end": max(end, t + 0.3), "text": text})
+        new = {"t": t, "end": max(end, t + 0.3), "text": text}
+        if text in old_words:
+            new["words"] = old_words[text]
+        lines.append(new)
     if len(lines) < 1:
         raise HTTPException(400, "letra vazia")
     lines.sort(key=lambda l: l["t"])

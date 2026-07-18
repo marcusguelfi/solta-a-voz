@@ -327,7 +327,9 @@ def test_regroup_words_to_lines():
     words = [_Word(0, 1), _Word(1, 2), _Word(3, 4), _Word(4, 5)]
     res = _Res([_Seg(words)])
     spans = main._regroup_words_to_lines(res, ["oi mundo", "tudo bem"])
-    assert spans == [(0.0, 2.0), (3.0, 5.0)]
+    # agora cada span carrega o chunk de palavras junto (pro word-level fill)
+    assert [(s[0], s[1]) for s in spans] == [(0.0, 2.0), (3.0, 5.0)]
+    assert [len(s[2]) for s in spans] == [2, 2]
 
 
 def test_regroup_falha_se_contagem_nao_bate():
@@ -344,3 +346,15 @@ def test_interpolate_bad_lines_estima_entre_ancoras():
     main._interpolate_bad_lines(lines, good=[0, 2])
     assert 12.0 < lines[1]["t"] < 30.0
     assert all("_ok" not in ln for ln in lines)  # a flag interna é consumida
+
+
+def test_line_words_relative():
+    """Palavras viram offsets relativos ao início da linha (padrão UltraStar)."""
+    class W:
+        def __init__(s, a, b, w):
+            s.start, s.end, s.word = a, b, w
+    words = main._line_words([W(10.0, 10.5, " Agora"), W(10.5, 11.2, "eu")], 10.0)
+    assert words == [[0.0, 0.5, "Agora"], [0.5, 1.2, "eu"]]
+    # menos de 2 palavras válidas -> None (fill cai pra interpolação linear)
+    assert main._line_words([W(10.0, 10.0, "x"), W(10.5, 11.0, "y")], 10.0) is None
+    assert main._line_words([], 0.0) is None

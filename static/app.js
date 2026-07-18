@@ -538,7 +538,10 @@ function drawLane() {
     const flush = (endK) => {
       if (segStart !== null && segN >= 2) {
         const x1 = X(segStart * hop), x2 = X(endK * hop);
-        const yy = opts.pitched ? Y(segSum / segN) : h / 2;
+        // quantização à la UltraSinger: a NOTA exibida é o semitom mais próximo
+        // da média do segmento — lane limpo, sem vibrato/slide serrilhando.
+        // Só o desenho: a pontuação segue comparando com o midi cru.
+        const yy = opts.pitched ? Y(Math.round(segSum / segN)) : h / 2;
         ctx.fillStyle = opts.faint
           ? (inNow ? "rgba(255,179,71,.30)" : "rgba(157,143,176,.22)")
           : colorFor(endK * hop, inNow);
@@ -645,7 +648,7 @@ const cardEls = new Map(); // id -> {card, meta, prog, progFill}
 // busca + ordenação + filtro de gênero (a view é derivada; `songs` é a fonte)
 const libFilter = {
   q: "", sort: "recent", genre: null,
-  view: localStorage.getItem("cfg:libView") || "shelves", // gavetas ou tudo junto
+  view: localStorage.getItem("cfg:libView") || "all", // tudo junto por padrão
 };
 let lastViewKey = "";
 
@@ -1424,8 +1427,20 @@ function renderLyrics(lyr) {
     scroller.hidden = false;
     // "lines" tem início E fim de cada frase CANTADA (forced alignment no servidor)
     lyrLines = lyr.lines
-      ? lyr.lines.map((l) => ({ t: l.t, end: l.end, text: l.text }))
+      ? lyr.lines.map((l) => ({ t: l.t, end: l.end, text: l.text, words: l.words }))
       : parseLRC(lyr.synced);
+    // words = [[dt, dEnd, palavra], ...] relativos ao início da linha; pré-computa
+    // a posição em CARACTERES de cada palavra pro preenchimento palavra-a-palavra
+    lyrLines.forEach((line) => {
+      if (!line.words || line.words.length < 2) return;
+      let pos = 0;
+      line.wchars = line.words.map(([dt, de, w]) => {
+        let i = line.text.indexOf(w, pos);
+        if (i < 0) i = pos;
+        pos = i + w.length;
+        return [dt, de, i, pos];
+      });
+    });
     lyrLines.forEach((line) => {
       const el = document.createElement("div");
       el.className = "lyr-line";
@@ -1496,6 +1511,23 @@ function updateOffsetLabel() {
   $("off-val").textContent = (total >= 0 ? "+" : "") + total.toFixed(1).replace(".", ",") + "s";
   $("off-auto").textContent = autoOffset
     ? `(auto ${autoOffset >= 0 ? "+" : ""}${autoOffset.toFixed(1).replace(".", ",")}s)` : "";
+}
+
+// % preenchido da linha ativa. Com words (timestamps por palavra do whisper,
+// achado da pesquisa UltraStar): o preenchimento anda pelo comprimento em
+// caracteres de cada palavra CANTADA — karaokê de verdade. Sem words (letras
+// antigas, linhas intercaladas/editadas): interpolação linear de sempre.
+function fillPercent(line, rel, dur) {
+  if (!line.wchars) return Math.min(100, Math.max(0, (rel / dur) * 100));
+  const total = line.text.length || 1;
+  let chars = 0;
+  for (const [dt, de, c0, c1] of line.wchars) {
+    if (rel >= de) { chars = c1; continue; } // palavra já cantada inteira
+    if (rel < dt) break;                     // ainda não chegou nesta
+    chars = c0 + (c1 - c0) * ((rel - dt) / Math.max(de - dt, 0.05));
+    break;
+  }
+  return Math.min(100, (chars / total) * 100);
 }
 
 // tempo da letra: posição do áudio menos o offset automático, mais o ajuste manual.
@@ -1580,7 +1612,7 @@ function tick() {
 
   // preenchimento da linha ativa; sem linha ativa, a rolagem centraliza a PRÓXIMA
   if (cur && !pastEnd) {
-    const p = Math.min(100, Math.max(0, ((t - cur.t) / Math.max(curEnd - cur.t, 0.1)) * 100));
+    const p = fillPercent(cur, t - cur.t, Math.max(curEnd - cur.t, 0.1));
     cur.span.style.backgroundImage =
       `linear-gradient(90deg, #ff2d78, #ffb347 ${p}%, #f4eef8 ${p}%)`;
   }
