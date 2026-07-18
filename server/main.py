@@ -869,8 +869,8 @@ def transcribe_region_lines(sid: str, a: float, b: float) -> list[dict]:
     out = []
     for ws in lines:
         text = " ".join(w.word.strip() for w in ws).strip()
-        if len(text) < 3:
-            continue
+        if len(re.sub(r"[^A-Za-zÀ-ú0-9]", "", text)) < 4:
+            continue  # fragmento-lixo ("ini")
         out.append({"t": round(float(ws[0].start) + start, 2),
                     "end": round(float(ws[-1].end) + start, 2),
                     "text": text, "auto": True})
@@ -1004,7 +1004,7 @@ def align_lyrics_to_vocals(sid: str) -> dict | None:
     orig_synced = lyr.get("origSynced") or lyr.get("synced")
     if orig_synced:
         base_lines = parse_lrc(orig_synced)
-        texts = [t for _t, t in base_lines]
+        texts = [t for _t, t in base_lines if len(re.sub(r"[^A-Za-zÀ-ú0-9]", "", t)) >= 4]
     elif lyr.get("plain"):
         base_lines = None
         texts = [ln.strip() for ln in lyr["plain"].splitlines() if ln.strip()]
