@@ -470,6 +470,14 @@ ter amado mais" caiu como ghost e cada linha ficou com o texto da vizinha —
 Off-by-one residual (ghost engole 1ª linha e desloca textos) = caso do
 anchor-matching por linha (Fase 1.3) — a validação canônica NÃO conserta
 deslocamento, só identidade/versão.
+**Desfecho (provas)**: Epitáfio off-by-one CONFIRMADO por transcrição do
+trecho 9,8–14,3s = "Deve ter amado mais" onde o app mostrava "Ter chorado
+mais"; realinhar não resolve (janelas esmagadas/borradas, não é shift
+uniforme — script não conserta com segurança) → marcado whisper-suspeito
+(pill revisar; editor ou anchor-matching #13 resolvem). Flor de Tangerina
+RESOLVIDA: regra do takeover (candidato ao vivo + faixa estúdio + letras
+disponível → texto de estúdio assume) devolveu "Hoje eu sonhei que ela
+voltava"; source="letras.mus.br", 35 linhas whisper com words.
 
 ### Rodada de validação 2026-07-18 (noite) — anti-alucinação + editor v2
 
