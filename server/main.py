@@ -838,6 +838,43 @@ SPEECH_MARGIN = 0.3       # folga (s) nas bordas do segmento
 _speech_cache: dict[str, dict | None] = {}
 
 
+def full_transcribe(sid: str, force: bool = False) -> dict | None:
+    """UMA passada de transcrição na música inteira que alimenta as duas frentes
+    do ALIGN v2: os segmentos com no_speech_prob (máscara de fala, fase A) e as
+    palavras com tempo (âncoras por linha, fase C). Modelo "small" — a precisão
+    de palavra é o que sustenta o anchor-matching. Escreve speechmap.json e
+    words.json; ~2-4min de CPU por música, uma vez só."""
+    vocals = STEMS / sid / "vocals.mp3"
+    if not vocals.exists():
+        return None
+    try:
+        model = _get_whisper()
+        result = model.transcribe(str(vocals), language=detected_language(sid),
+                                  word_timestamps=True, suppress_silence=False)
+    except Exception:
+        logging.exception("transcrição completa falhou pra %s", sid)
+        return None
+    segments = [[round(float(s.start), 2), round(float(s.end), 2),
+                 round(float(getattr(s, "no_speech_prob", 0.0) or 0.0), 3)]
+                for s in result.segments]
+    words = []
+    for seg in result.segments:
+        for w in (seg.words or []):
+            txt = (getattr(w, "word", "") or "").strip()
+            if txt and float(w.end) > float(w.start):
+                words.append([round(float(w.start), 2), round(float(w.end), 2), txt])
+    end = max((s[1] for s in segments), default=0.0)
+    data = {"segments": segments, "covered": [0.0, round(end, 2)]}
+    try:
+        (STEMS / sid / "speechmap.json").write_text(json.dumps(data), encoding="utf-8")
+        (STEMS / sid / "words.json").write_text(json.dumps({"words": words}),
+                                                encoding="utf-8")
+    except OSError:
+        pass
+    _speech_cache.clear()
+    return data
+
+
 def speech_map(sid: str, build: bool = True, force: bool = False) -> dict | None:
     """Segmentos de fala cantada da música inteira: {"segments": [[a,b,nsp]...],
     "covered": [0, fim]}. Cacheado em stems/{id}/speechmap.json."""
@@ -847,26 +884,20 @@ def speech_map(sid: str, build: bool = True, force: bool = False) -> dict | None
             return json.loads(cache.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             pass
-    vocals = STEMS / sid / "vocals.mp3"
-    if not build or not vocals.exists():
-        return None
-    try:
-        model = _get_whisper_fast()  # identidade de fala não precisa do "small"
-        result = model.transcribe(str(vocals), language=detected_language(sid),
-                                  word_timestamps=False, suppress_silence=False)
-        segments = [[round(float(s.start), 2), round(float(s.end), 2),
-                     round(float(getattr(s, "no_speech_prob", 0.0) or 0.0), 3)]
-                    for s in result.segments]
-    except Exception:
-        logging.exception("mapa de fala falhou pra %s", sid)
-        return None
-    end = max((s[1] for s in segments), default=0.0)
-    data = {"segments": segments, "covered": [0.0, round(end, 2)]}
-    try:
-        cache.write_text(json.dumps(data), encoding="utf-8")
-    except OSError:
-        pass
-    return data
+    return full_transcribe(sid, force=force) if build else None
+
+
+def word_transcript(sid: str, build: bool = False) -> list | None:
+    """Palavras cantadas com tempo [[a, b, palavra]] — base das âncoras (fase C)."""
+    cache = STEMS / sid / "words.json"
+    if cache.exists():
+        try:
+            return json.loads(cache.read_text(encoding="utf-8")).get("words") or None
+        except json.JSONDecodeError:
+            pass
+    if build and full_transcribe(sid):
+        return word_transcript(sid, build=False)
+    return None
 
 
 def _speech_mask(sid: str, n: int, hop: float, build: bool = False) -> list[bool] | None:
@@ -1356,6 +1387,62 @@ def drop_ghost_lines(sid: str, lines: list[dict]) -> tuple[list[dict], int]:
     return keep, dropped
 
 
+def anchor_fix_lines(sid: str, lines: list[dict], radius: float = 25.0,
+                     min_score: float = 0.62, tol: float = 0.6) -> int:
+    """ALIGN v2 fase C — ANCHOR-MATCHING POR LINHA.
+
+    Compara o TEXTO de cada linha com o que foi REALMENTE cantado (transcrição
+    com tempo de palavra) e reancora só as linhas que estão no lugar errado.
+    É o remédio do off-by-one (Epitáfio: a 1ª frase virou fantasma e todas as
+    outras herdaram o texto da vizinha) e do refrão repetido que escorrega em
+    letra sem trilho. Linha que já concorda com o canto NÃO é tocada."""
+    import difflib
+
+    wt = word_transcript(sid)
+    if not wt or len(wt) < 20 or not lines:
+        return 0
+    words = [(a, b, _norm_txt(w).strip()) for a, b, w in wt]
+    words = [(a, b, w) for a, b, w in words if w]
+    if len(words) < 20:
+        return 0
+    txt = [w for _a, _b, w in words]
+    fixed = 0
+    for ln in lines:
+        alvo = [w for w in _norm_txt(ln["text"]).split() if w]
+        if len(alvo) < 3:
+            continue  # âncora fraca: não arrisca
+        alvo_s = " ".join(alvo)
+        n = len(alvo)
+        best = (0.0, None, None)
+        for k in range(len(words) - 2):
+            if abs(words[k][0] - ln["t"]) > radius:
+                continue
+            for span in (n - 1, n, n + 1):
+                if span < 2 or k + span > len(words):
+                    continue
+                r = difflib.SequenceMatcher(None, alvo_s, " ".join(txt[k:k + span])).ratio()
+                if r > best[0]:
+                    best = (r, words[k][0], words[k + span - 1][1])
+        if best[0] >= min_score and best[1] is not None and abs(best[1] - ln["t"]) > tol:
+            dur = max(ln.get("end", ln["t"] + 2) - ln["t"], 0.5)
+            ln["t"] = round(max(0.0, best[1]), 2)
+            ln["end"] = round(max(best[2], ln["t"] + min(dur, 2.0)), 2)
+            ln.pop("words", None)  # tempo veio da âncora, não do alinhador
+            ln["anchored"] = True
+            fixed += 1
+    if fixed:
+        lines.sort(key=lambda x: x["t"])
+        for i in range(1, len(lines)):  # monotonia + sem invadir a próxima
+            if lines[i]["t"] <= lines[i - 1]["t"]:
+                lines[i]["t"] = round(lines[i - 1]["t"] + 0.05, 2)
+            if lines[i - 1]["end"] > lines[i]["t"] - 0.02:
+                lines[i - 1]["end"] = round(
+                    max(lines[i - 1]["t"] + 0.4, lines[i]["t"] - 0.05), 2)
+            if lines[i]["end"] < lines[i]["t"] + 0.3:
+                lines[i]["end"] = round(lines[i]["t"] + 0.8, 2)
+    return fixed
+
+
 def reconcile_with_lrc(lines: list[dict], lrc: list[tuple[float, str]]) -> dict:
     """O Whisper é preciso localmente, mas se perde em REFRÕES REPETIDOS (atribui
     a frase à repetição errada e estica a janela). O LRC humano tem offset global,
@@ -1471,6 +1558,11 @@ def align_lyrics_to_vocals(sid: str, engine: str = "whisper") -> dict | None:
                 reconciled = {}
             reconciled["droppedBeyondAudio"] = len(lines) - len(kept)
             lines = kept
+    # fase C: linha cujo TEXTO foi cantado em outro lugar volta pro lugar certo
+    # (antes do ghost: melhor reancorar do que deixar cair como fantasma)
+    anchored = anchor_fix_lines(sid, lines)
+    if anchored:
+        reconciled = {**(reconciled or {}), "anchored": anchored}
     # corta o instrumental preso no fim das frases (frase segue a cantoria)
     tails = clamp_ends_to_voice(sid, lines)
     if tails:
@@ -1612,13 +1704,13 @@ def process_song(sid: str) -> None:
     vocals_wav.unlink(missing_ok=True)
     instr_wav.unlink(missing_ok=True)
 
-    # 4.5) mapa de fala cantada da música inteira (fase A): sem ele, gaita/sax/
-    # coro vazado no stem viram "canto" pra ghost/clamp/extensão. Construído aqui,
-    # uma vez, antes de qualquer regra de energia rodar.
+    # 4.5) UMA transcrição da música inteira alimenta as duas frentes do ALIGN v2:
+    # máscara de fala (gaita/sax vazado no stem não é canto) e palavras com tempo
+    # (âncoras por linha). Tem que rodar antes de qualquer regra de energia.
     try:
-        speech_map(sid, build=True)
+        word_transcript(sid, build=True)
     except Exception:
-        logging.exception("mapa de fala falhou pra %s", sid)
+        logging.exception("transcrição completa falhou pra %s", sid)
 
     # 5) forced alignment: re-cronometra cada linha pela CANTORIA (método definitivo;
     # os passos 3 servem de fallback se o Whisper não confiar no resultado)

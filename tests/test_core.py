@@ -452,3 +452,60 @@ def test_sung_energy_cai_pra_crua_sem_mapa(monkeypatch):
     main._speech_cache.clear()
     pitch = {"hop": 0.1, "energy": [1, 0, 1, 1]}
     assert main.sung_energy("x", pitch) == [1, 0, 1, 1]
+
+
+# ------------------------------------------- fase C: anchor-matching por linha
+
+def _fake_words(monkeypatch, pares):
+    """pares = [(t, "texto da frase")] -> vira transcrição palavra a palavra."""
+    words, dur = [], 0.45
+    for t, frase in pares:
+        for i, w in enumerate(frase.split()):
+            words.append([round(t + i * dur, 2), round(t + (i + 1) * dur - 0.05, 2), w])
+    monkeypatch.setattr(main, "word_transcript", lambda sid, build=False: words)
+
+
+def test_anchor_fix_corrige_off_by_one(monkeypatch):
+    """Caso Epitáfio: a 1ª frase sumiu e todas herdaram o texto da vizinha."""
+    _fake_words(monkeypatch, [
+        (10.0, "devia ter amado mais"),
+        (14.0, "ter chorado mais ainda"),
+        (18.0, "ter visto o sol nascer"),
+        (24.0, "devia ter arriscado mais e ate errado mais"),
+    ])
+    lines = [
+        {"t": 10.0, "end": 13.0, "text": "Ter chorado mais ainda"},      # certo: 14
+        {"t": 14.0, "end": 17.0, "text": "Ter visto o sol nascer"},      # certo: 18
+        {"t": 18.0, "end": 23.0, "text": "Devia ter arriscado mais e até errado mais"},
+    ]
+    fixed = main.anchor_fix_lines("x", lines)
+    assert fixed == 3
+    assert abs(lines[0]["t"] - 14.0) < 0.4
+    assert abs(lines[1]["t"] - 18.0) < 0.4
+    assert abs(lines[2]["t"] - 24.0) < 0.4
+    assert all(lines[i]["t"] < lines[i + 1]["t"] for i in range(len(lines) - 1))
+
+
+def test_anchor_fix_nao_mexe_no_que_esta_certo(monkeypatch):
+    _fake_words(monkeypatch, [(10.0, "agora eu era o heroi"),
+                             (16.0, "e o meu cavalo so falava ingles"),
+                             (22.0, "a noiva do cowboy era voce")])
+    lines = [{"t": 10.05, "end": 12.0, "text": "Agora eu era o herói"},
+             {"t": 16.02, "end": 19.0, "text": "E o meu cavalo só falava inglês"}]
+    antes = [dict(x) for x in lines]
+    assert main.anchor_fix_lines("x", lines) == 0
+    assert lines == antes
+
+
+def test_anchor_fix_ignora_linha_curta(monkeypatch):
+    """Menos de 3 palavras = âncora fraca; não arrisca mover."""
+    _fake_words(monkeypatch, [(10.0, "vai"), (20.0, "vai vai vai vai")])
+    lines = [{"t": 30.0, "end": 31.0, "text": "Vai"}]
+    assert main.anchor_fix_lines("x", lines) == 0
+    assert lines[0]["t"] == 30.0
+
+
+def test_anchor_fix_sem_transcricao(monkeypatch):
+    monkeypatch.setattr(main, "word_transcript", lambda sid, build=False: None)
+    lines = [{"t": 1.0, "end": 2.0, "text": "qualquer coisa aqui"}]
+    assert main.anchor_fix_lines("x", lines) == 0
