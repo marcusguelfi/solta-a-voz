@@ -617,6 +617,17 @@ energia crua + teto de 25%.
 `speechmap.json`/`words.json`, que o pipeline gera no passo 4.5. Acervo
 antigo continua como estava até passar por `align_v2_apply.py --fresh`.
 
+## ➡️ PRÓXIMO: `ALIGN_V3_PLAN.md` (plano pesquisado, ainda NÃO executado)
+
+Escrito 2026-07-19 a pedido do Marcus ("concordância perto de 1,00"), com
+pesquisa densa. **Descoberta que muda a meta**: a concordância soma DOIS
+erros — alinhamento e transcrição. Com WER de canto de ~20%, alinhamento
+perfeito mediria ~0,85. Logo 1,00 é inalcançável por definição; a meta certa
+é (0) medir o teto do ASR por música, (1) validar contra verdade humana
+(Jamendo, AAE/PCS, SOTA <0,2s), (2) levantar o teto com large-v3 +
+Mel-Band Roformer na GPU, (3) trocar as heurísticas por alinhamento GLOBAL
+de sequências (Needleman-Wunsch/DTW: âncoras + gaps), (4) só então limiares.
+
 ## Pendências imediatas (próxima sessão COMEÇA por aqui)
 
 1. **Ícones SVG no lugar dos emojis** da UI (mudam de cor, combinam com a
