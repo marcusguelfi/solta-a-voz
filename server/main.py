@@ -656,6 +656,17 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
     if not best:
         return None
     cand, offset, coverage, _score, sim, src_sim = best
+    # venceu uma versão AO VIVO e a nossa faixa é de estúdio: mesmo com o
+    # vocabulário parecido, a ORDEM/texto dos versos difere ("Ontem" × "Hoje",
+    # Flor de Tangerina) — o texto de ESTÚDIO do letras.mus.br assume
+    if letras_text and _is_live_title(cand.get("trackName")) \
+            and not _is_live_title(e_title):
+        result = {"found": True, "synced": None, "plain": letras_text,
+                  "difficulty": None, "source": "letras.mus.br",
+                  "matched": {"artist": e_artist, "title": e_title},
+                  "srcMatch": src_sim, "reason": "candidato era ao vivo"}
+        _update_entry(sid, lyrics=result, autoOffset=0.0)
+        return result
     # nem a melhor candidata bate com a fonte canônica: o LRCLIB não tem essa
     # música direito — o texto do letras.mus.br VIRA a letra (whisper cria o
     # sync do zero a partir do texto puro)
