@@ -1799,11 +1799,16 @@ def align_lyrics_to_vocals(sid: str, engine: str = "hibrido") -> dict | None:
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
     # trilho do LRC recusado (offset absurdo) = whisper sozinho numa faixa que
     # já se mostrou traiçoeira — rebaixa a confiança pro card avisar "revisar"
-    method = engine + ("-suspeito" if (reconciled or {}).get("skipped") else "")
+    # concordância com o canto real: vira o selo de qualidade da música. Abaixo
+    # de 0,65 o app avisa "⚠ revisar sync" sozinho — o Marcus não precisa mais
+    # descobrir cantando (Samurai deu 0,48 e a régua de onsets dizia "98ms ok").
+    acordo = alignment_agreement(sid, lines)
+    method = engine + ("-suspeito" if (reconciled or {}).get("skipped")
+                       or (acordo is not None and acordo < 0.65) else "")
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
               "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
-              "alignMethod": method, "reconciled": reconciled}
+              "alignMethod": method, "reconciled": reconciled, "agreement": acordo}
     _update_entry(sid, lyrics=result, autoOffset=0)
     return result
 
