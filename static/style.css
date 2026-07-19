@@ -761,3 +761,6 @@ body.sb-collapsed .sb-toggle { left: 10px; }
 .shelf-row.dragging { cursor: grabbing; scroll-snap-type: none; }
 .shelf-row img { -webkit-user-drag: none; }
 .view-toggle { white-space: nowrap; }
+
+/* o botão de recolher o sidebar não pertence ao palco (player aberto) */
+body:has(#player-view:not([hidden])) .sb-toggle { display: none; }

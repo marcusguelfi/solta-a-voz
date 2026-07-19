@@ -1116,6 +1116,15 @@ def extend_lyrics_with_transcript(sid: str) -> int:
         added = validated
         if not added:
             return 0
+    # dedup: não inserir texto idêntico colado numa linha que JÁ existe
+    # (região "descoberta" encostada numa frase igual gera eco visual)
+    def _dup(ln):
+        n = _norm_txt(ln["text"]).strip()
+        return any(_norm_txt(ex["text"]).strip() == n
+                   and abs(ex["t"] - ln["t"]) < 6.0 for ex in lines)
+    added = [ln for ln in added if not _dup(ln)]
+    if not added:
+        return 0
     merged = sorted(lines + added, key=lambda ln: ln["t"])
     for i in range(len(merged) - 1):  # sem invadir a próxima
         if merged[i]["end"] > merged[i + 1]["t"] - 0.02:
