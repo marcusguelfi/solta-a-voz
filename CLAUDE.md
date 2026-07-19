@@ -545,6 +545,46 @@ Linha trocada fica marcada com `ctc: True`.
 
 Custo: MMS_FA baixa 1,18GB na 1ª vez; ~2-4min/música em CPU quando aciona.
 
+### FASE C ✅ — anchor-matching por linha + as CICATRIZES da execução
+
+`anchor_fix_lines`: compara o TEXTO da linha com o que foi realmente cantado
+(words.json) e reancora só as deslocadas. `full_transcribe` faz UMA passada
+que alimenta máscara (A) e âncoras (C).
+
+**‼️ A primeira versão DESTRUIU o controle** (I Have a Dream 36ms → 615ms,
+29 → 19 linhas) e o teste de regressão pegou. Foi o melhor momento da
+execução: o controle existe pra isso. Causas e travas (todas com teste):
+1. **Comparação por caractere inflava a nota** ("ter chorado mais" × "ter
+   amado mais" = 0,7 em caractere, 0,5 em palavra) → passou a comparar
+   PALAVRA.
+2. **Movia pro casamento de maior nota em ±25s** → em refrão repetido isso é
+   a repetição errada. Agora: entre os de nota MÁXIMA, o MAIS PRÓXIMO.
+3. **Não verificava se o lugar atual já estava certo** → agora só mexe se o
+   que é cantado COMEÇANDO ali discorda (nota < 0,6), ancorado no início
+   (janela solta vazava pra frase seguinte e dizia "está tudo bem").
+4. **Sem teto** → mexer em >25% das linhas só passa se o conserto for
+   COERENTE (mesmo sentido + destinos crescentes = assinatura do off-by-one);
+   destinos embaralhados = não mexe em nada.
+5. **Ordem checada contra a posição ANTIGA das vizinhas** → num deslocamento
+   global todas se bloqueavam; agora checa contra as posições FINAIS.
+6. `drop_ghost_lines` ganhou **teto de 25%** (com a máscara a energia ficou
+   mais esparsa e a regra de ouro comeu 20 das 61 linhas de Vamos Fugir).
+
+**‼️ BUG ESTRUTURAL achado no meio (o mais importante da sessão)**:
+`extend_lyrics_with_transcript` sobrescreve `origSynced` com o texto
+estendido (precisa, senão o próximo align desfaz a extensão) — então **uma
+rodada ruim envenena o trilho PARA SEMPRE** e todo realinhamento futuro
+parte do texto corrompido. Foi por isso que a 2ª rodada não voltou ao
+baseline: reconstruía sobre escombros. Agora existe `pristineSynced` (fonte
+humana original, gravada uma vez, nunca sobrescrita), `reset_to_pristine()` e
+a flag `--fresh` do `align_v2_apply.py`. **Qualquer experimento de
+alinhamento daqui pra frente TEM que rodar com --fresh**, senão mede ruído
+acumulado.
+
+Prova (controle, trilho limpo): whisper 40ms × híbrido 40ms — **idênticos**
+(o híbrido nem aciona o CTC nessa música), contra 36ms do baseline: dentro
+da tolerância. O híbrido não era o culpado; o trilho envenenado era.
+
 ## Pendências imediatas (próxima sessão COMEÇA por aqui)
 
 1. **Ícones SVG no lugar dos emojis** da UI (mudam de cor, combinam com a
