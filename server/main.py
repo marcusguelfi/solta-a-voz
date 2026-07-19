@@ -1419,28 +1419,44 @@ def drop_ghost_lines(sid: str, lines: list[dict]) -> tuple[list[dict], int]:
         return lines, 0
     hop = pitch["hop"]
     n = len(energy)
+    # ‼️ CICATRIZ (2026-07-19): com a máscara de fala a energia ficou mais
+    # esparsa e a regra de ouro passou a derrubar letra demais (Vamos Fugir
+    # perdeu 20 de 61 linhas). Derrubar 1/4 da música não é "tirar fantasma" —
+    # é sintoma de que a premissa está errada. Teto proporcional:
+    max_drop = max(3, int(len(lines) * 0.25))
     keep, dropped = [], 0
     for i, ln in enumerate(lines):
         end = ln.get("end") or (lines[i + 1]["t"] if i + 1 < len(lines) else ln["t"] + 5)
         a, b = max(0, int(ln["t"] / hop)), min(n, int(end / hop))
         seg = energy[a:b] or [0]
         cov = sum(seg) / len(seg)
-        if cov < 0.12 and len(lines) - dropped > 6:  # fantasma (e mantém um mínimo)
+        if cov < 0.12 and len(lines) - dropped > 6 and dropped < max_drop:
             dropped += 1
             continue
         keep.append(ln)
     return keep, dropped
 
 
-def anchor_fix_lines(sid: str, lines: list[dict], radius: float = 25.0,
-                     min_score: float = 0.62, tol: float = 0.6) -> int:
-    """ALIGN v2 fase C — ANCHOR-MATCHING POR LINHA.
+def anchor_fix_lines(sid: str, lines: list[dict], radius: float = 12.0,
+                     min_score: float = 0.75, bad_score: float = 0.6,
+                     bad_score_word: float = 0.6, tol: float = 0.8,
+                     max_frac: float = 0.25) -> int:
+    """ALIGN v2 fase C — ANCHOR-MATCHING POR LINHA (versão conservadora).
 
     Compara o TEXTO de cada linha com o que foi REALMENTE cantado (transcrição
-    com tempo de palavra) e reancora só as linhas que estão no lugar errado.
-    É o remédio do off-by-one (Epitáfio: a 1ª frase virou fantasma e todas as
-    outras herdaram o texto da vizinha) e do refrão repetido que escorrega em
-    letra sem trilho. Linha que já concorda com o canto NÃO é tocada."""
+    com tempo de palavra) e reancora SÓ as linhas que estão no lugar errado.
+    Remédio do off-by-one (Epitáfio: a 1ª frase virou fantasma e as outras
+    herdaram o texto da vizinha).
+
+    ‼️ CICATRIZ (2026-07-19): a 1ª versão movia a linha sempre que achasse um
+    casamento melhor em ±25s, e isso DESTRUIU o controle (I Have a Dream: 36ms
+    → 615ms, 29 → 19 linhas) porque em refrão repetido toda linha casa em
+    vários lugares e ela escolhia a repetição errada. As 4 travas de agora:
+      1. só mexe se o lugar ATUAL discorda do canto (score < bad_score);
+      2. entre os candidatos bons, escolhe o MAIS PRÓXIMO, não o de maior nota;
+      3. exige nota alta (min_score) e raio curto;
+      4. se mais de max_frac das linhas quiserem mudar, a transcrição não casa
+         com a estrutura da letra — não mexe em NADA."""
     import difflib
 
     wt = word_transcript(sid)
@@ -1451,40 +1467,98 @@ def anchor_fix_lines(sid: str, lines: list[dict], radius: float = 25.0,
     if len(words) < 20:
         return 0
     txt = [w for _a, _b, w in words]
-    fixed = 0
-    for ln in lines:
-        alvo = [w for w in _norm_txt(ln["text"]).split() if w]
-        if len(alvo) < 3:
-            continue  # âncora fraca: não arrisca
-        alvo_s = " ".join(alvo)
-        n = len(alvo)
-        best = (0.0, None, None)
+
+    # comparação por PALAVRA, não por caractere: "ter chorado mais" × "ter amado
+    # mais" dá ~0,7 em caractere (inflado por 'ter'/'mais' em comum) e 0,5 em
+    # palavra — foi essa inflação que quase matou a detecção do off-by-one.
+    def nota(alvo: list[str], k: int, span: int) -> float:
+        return difflib.SequenceMatcher(None, alvo, txt[k:k + span]).ratio()
+
+    def varrer(alvo: list[str], centro: float, raio: float, corte: float):
+        """(melhor nota, [candidatos acima do corte]) dentro do raio."""
+        n, best, cands = len(alvo), 0.0, []
         for k in range(len(words) - 2):
-            if abs(words[k][0] - ln["t"]) > radius:
+            if abs(words[k][0] - centro) > raio:
                 continue
             for span in (n - 1, n, n + 1):
                 if span < 2 or k + span > len(words):
                     continue
-                r = difflib.SequenceMatcher(None, alvo_s, " ".join(txt[k:k + span])).ratio()
-                if r > best[0]:
-                    best = (r, words[k][0], words[k + span - 1][1])
-        if best[0] >= min_score and best[1] is not None and abs(best[1] - ln["t"]) > tol:
-            dur = max(ln.get("end", ln["t"] + 2) - ln["t"], 0.5)
-            ln["t"] = round(max(0.0, best[1]), 2)
-            ln["end"] = round(max(best[2], ln["t"] + min(dur, 2.0)), 2)
-            ln.pop("words", None)  # tempo veio da âncora, não do alinhador
-            ln["anchored"] = True
-            fixed += 1
-    if fixed:
-        lines.sort(key=lambda x: x["t"])
-        for i in range(1, len(lines)):  # monotonia + sem invadir a próxima
-            if lines[i]["t"] <= lines[i - 1]["t"]:
-                lines[i]["t"] = round(lines[i - 1]["t"] + 0.05, 2)
-            if lines[i - 1]["end"] > lines[i]["t"] - 0.02:
-                lines[i - 1]["end"] = round(
-                    max(lines[i - 1]["t"] + 0.4, lines[i]["t"] - 0.05), 2)
-            if lines[i]["end"] < lines[i]["t"] + 0.3:
-                lines[i]["end"] = round(lines[i]["t"] + 0.8, 2)
+                r = nota(alvo, k, span)
+                best = max(best, r)
+                if r >= corte:
+                    cands.append((words[k][0], words[k + span - 1][1], r))
+        return best, cands
+
+    def nota_aqui(alvo: list[str], t: float) -> float:
+        """O que é cantado COMEÇANDO neste instante bate com a linha? Tem que
+        ancorar no início: uma janela solta de ±1,5s vaza pra frase seguinte e
+        conclui 'está tudo bem' justo no caso deslocado."""
+        n = len(alvo)
+        k0 = next((k for k in range(len(words)) if words[k][0] >= t - 0.3), None)
+        if k0 is None:
+            return 0.0
+        best = 0.0
+        for k in (k0, k0 + 1):
+            for span in (n - 1, n, n + 1):
+                if k < len(words) and span >= 2 and k + span <= len(words):
+                    best = max(best, nota(alvo, k, span))
+        return best
+
+    propostas = []
+    for i, ln in enumerate(lines):
+        alvo = [w for w in _norm_txt(ln["text"]).split() if w]
+        if len(alvo) < 3:
+            continue  # âncora fraca: não arrisca
+        # (1) o lugar ATUAL já bate com o canto? então não é problema nosso
+        if nota_aqui(alvo, ln["t"]) >= bad_score:
+            continue
+        # (2)+(3) candidatos bons na vizinhança: fica com o MAIS PRÓXIMO
+        _b, cands = varrer(alvo, ln["t"], radius, min_score)
+        if not cands:
+            continue
+        # entre os de nota MÁXIMA (janelas quase iguais empatam), o mais próximo:
+        # a nota separa o casamento certo do "quase certo" (janela deslocada uma
+        # palavra); a proximidade desempata refrão repetido.
+        topo = max(c[2] for c in cands)
+        t0, t1, _r = min((c for c in cands if c[2] >= topo - 0.05),
+                         key=lambda c: abs(c[0] - ln["t"]))
+        if abs(t0 - ln["t"]) > tol:
+            propostas.append((i, t0, t1))
+    # (4) mexer em muita linha só é aceitável se o conserto for COERENTE:
+    # deslocamento no mesmo sentido e destinos em ordem crescente (assinatura
+    # do off-by-one). Destinos embaralhados/repetidos = a transcrição não casa
+    # com a estrutura da letra — não mexe em NADA.
+    if len(propostas) > max(2, len(lines) * max_frac):
+        import statistics as _st
+
+        alvos = [t0 for _i, t0, _t1 in propostas]
+        desloc = [t0 - lines[i]["t"] for i, t0, _t1 in propostas]
+        mediana = _st.median(desloc)
+        crescente = all(alvos[k] < alvos[k + 1] - 0.05 for k in range(len(alvos) - 1))
+        mesmo_sentido = sum(1 for d in desloc
+                            if (d > 0) == (mediana > 0)) >= 0.8 * len(desloc)
+        if not (crescente and mesmo_sentido):
+            logging.warning("âncoras descartadas em %s: %d de %d linhas mudariam "
+                            "sem coerência", sid, len(propostas), len(lines))
+            return 0
+    # a ordem é checada contra as posições FINAIS das vizinhas: num deslocamento
+    # global cada linha cai onde a seguinte está hoje, e comparar com a posição
+    # antiga faria todas se bloquearem mutuamente
+    destino = {i: t0 for i, t0, _t1 in propostas}
+    pos = lambda j: destino.get(j, lines[j]["t"])  # noqa: E731
+    fixed = 0
+    for i, t0, t1 in propostas:
+        piso = pos(i - 1) + 0.15 if i > 0 else 0.0
+        teto = pos(i + 1) - 0.15 if i + 1 < len(lines) else 1e9
+        if not (piso <= t0 <= teto):
+            continue  # sairia da ordem da letra: não força
+        ln = lines[i]
+        dur = max(ln.get("end", ln["t"] + 2) - ln["t"], 0.5)
+        ln["t"] = round(max(0.0, t0), 2)
+        ln["end"] = round(min(max(t1, ln["t"] + min(dur, 2.0)), teto + 0.1), 2)
+        ln.pop("words", None)  # tempo veio da âncora, não do alinhador
+        ln["anchored"] = True
+        fixed += 1
     return fixed
 
 

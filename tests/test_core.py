@@ -575,3 +575,37 @@ def test_hibrido_nao_chama_ctc_quando_whisper_vai_bem(monkeypatch):
                         lambda sid, texts: chamou.append(1) or [])
     out = main.hybrid_align_lines("x", ["a"] * 12)
     assert len(out) == 12 and not chamou   # CTC nem foi acionado
+
+
+def test_anchor_fix_nao_reescreve_a_musica_inteira(monkeypatch):
+    """CICATRIZ: refrão repetido fazia toda linha casar em vários lugares e a
+    versão antiga movia quase tudo (o controle I Have a Dream foi de 36ms pra
+    615ms). Se mais de 25% das linhas quiserem mudar, não mexe em nada."""
+    _fake_words(monkeypatch, [(10.0 + i * 4, "eu tenho um sonho lindo") for i in range(10)])
+    lines = [{"t": 100.0 + i, "end": 101.0 + i, "text": "Eu tenho um sonho lindo"}
+             for i in range(8)]
+    antes = [dict(x) for x in lines]
+    assert main.anchor_fix_lines("x", lines) == 0
+    assert lines == antes
+
+
+def test_anchor_fix_respeita_lugar_que_ja_bate(monkeypatch):
+    """Linha cujo lugar atual concorda com o canto não é movida, mesmo que
+    exista casamento igual mais adiante (repetição)."""
+    _fake_words(monkeypatch, [(10.0, "eu tenho um sonho lindo"),
+                              (40.0, "eu tenho um sonho lindo"),
+                              (70.0, "outra frase qualquer aqui agora")])
+    lines = [{"t": 10.1, "end": 12.0, "text": "Eu tenho um sonho lindo"},
+             {"t": 70.1, "end": 72.0, "text": "Outra frase qualquer aqui agora"}]
+    assert main.anchor_fix_lines("x", lines) == 0
+
+
+def test_drop_ghost_tem_teto_proporcional(monkeypatch):
+    """Derrubar 1/4 da letra é sintoma de premissa errada, não de fantasma."""
+    hop = 0.032
+    n = int(200 / hop)
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": [0] * n})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: [0] * n)
+    lines = [{"t": i * 4.0, "end": i * 4.0 + 2.0, "text": f"linha {i}"} for i in range(40)]
+    _keep, dropped = main.drop_ghost_lines("x", lines)
+    assert dropped <= 10   # teto de 25%, não os 40 que a energia zerada pediria
