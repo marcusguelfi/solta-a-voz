@@ -212,6 +212,31 @@ quero pro app."
    Casos de teste: Samurai (gaita+melisma), Não Deixe o Samba Morrer
    (melisma+pulos), Epitáfio (off-by-one), Take Me Out (tempo change).
    I Have a Dream = controle (ficou perfeita — não regredir!).
+
+   **PESQUISA VALIDADA (2026-07-19, antes de codar — pedido do Marcus):**
+   - **AutoLyrixAlign (NUS/Gupta)** — campeão do MIREX 2019 em alinhamento
+     letra↔áudio POLIFÔNICO (github chitralekha18/AutoLyrixAlign). Kaldi +
+     Singularity, pesado, treinado em inglês → serve de BENCHMARK (rodável
+     no servidor doméstico via Docker), não de motor pro acervo BR.
+   - **lyrics-aligner (schufo)** — PyTorch/MIT, alinha+separa junto, MAS
+     fonemas ARPAbet = SÓ INGLÊS. Descartado como principal.
+   - **torchaudio forced_align + MMS_FA** — CTC multilíngue (1100+ línguas,
+     PT incluso), API estável, pacote pronto (MahmoudAshraf97/
+     ctc-forced-aligner). Blank do CTC absorve duração → melisma alinha por
+     construção. Treinado em FALA; literatura mostra wav2vec2 transferindo
+     bem pra canto (Ou et al. 2022, transfer learning p/ lyric transcription).
+     → O CANDIDATO. Regra: A/B contra o whisper com o audit (timing_errors
+     × onsets) nos 6 casos + controle ANTES de adotar.
+   - **Vazamento de instrumento** — classe conhecida na literatura de
+     singing voice detection: "instrumentos de pitch contínuo geram falsos
+     positivos de voz" (Lehner et al. ICASSP 2014). Nossa versão barata e
+     LINGUÍSTICA (não só energia): no_speech_prob dos segmentos do whisper
+     (a transcrição já existe!) vira máscara de fala-cantada sobre energy.
+   **ORDEM DE EXECUÇÃO**: (A) máscara de fala + suíte de regressão dos 7
+   casos (mais barato, mata a classe Samurai); (B) MMS_FA lado a lado com
+   whisper, adoção por métrica (fallback nas linhas que o whisper pulou/
+   esmagou, ou motor titular se vencer geral); (C) anchor-matching por
+   linha usando a transcrição pra resgatar SÓ as linhas discordantes.
 4. **Gráfico de tom preciso pra CANTORIA DO USUÁRIO**: revisar pipeline do mic
    (autocorrelação atual) — captar com precisão o que a pessoa canta; latência,
    oitava, vibrato. O lane é o feedback central do jogo.
