@@ -187,6 +187,8 @@ def audit_song(sid: str, entry: dict) -> dict | None:
         bits.append(f"reconcile={rec['fixed']}@{rec.get('offset')}s")
     if rec.get("trimmedTails"):
         bits.append(f"tails cortadas={rec['trimmedTails']}")
+    if rec.get("anchored"):
+        bits.append(f"reancoradas={rec['anchored']}")  # fase C
     if rec.get("droppedBeyondAudio"):
         bits.append(f"frases fantasma removidas={rec['droppedBeyondAudio']}")
     onset = entry.get("vocalOnset")

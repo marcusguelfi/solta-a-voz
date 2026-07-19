@@ -1,5 +1,15 @@
 # ALIGN v2 — Handoff de execução (para o Opus)
 
+> **STATUS (2026-07-19, executado pelo Opus)**
+> - **Fase A ✅ feita** (commit f4ec16a) — `speech_map`/`sung_energy`, números
+>   no CLAUDE.md seção "ALIGN v2 — EXECUÇÃO". Desvio deliberado: mapa de fala
+>   da MÚSICA INTEIRA (o handoff sugeria reusar `transcribe_vocals`, que só vê
+>   ~110s e não pegaria solo no meio — justo o caso Samurai).
+> - **Fase C ✅ código feito** (commit b64ae28) — `anchor_fix_lines` +
+>   `full_transcribe` (uma passada alimenta máscara E âncoras). 47 testes.
+> - **Fase B ⏳** — A/B `server/ab_align.py` rodando; decisão pela métrica.
+> - Ferramentas novas: `measure_align.py`, `ab_align.py`, `align_v2_apply.py`.
+
 Escrito em 2026-07-19 pelo Fable após pesquisa validada (fontes no CLAUDE.md,
 seção "PESQUISA VALIDADA"). Este documento é autossuficiente: contém o que
 implementar, em que ordem, como medir e quando parar. Leia o CLAUDE.md antes
