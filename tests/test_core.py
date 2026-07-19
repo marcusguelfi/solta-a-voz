@@ -509,3 +509,69 @@ def test_anchor_fix_sem_transcricao(monkeypatch):
     monkeypatch.setattr(main, "word_transcript", lambda sid, build=False: None)
     lines = [{"t": 1.0, "end": 2.0, "text": "qualquer coisa aqui"}]
     assert main.anchor_fix_lines("x", lines) == 0
+
+
+# ------------------------------------------- fase B: motor híbrido whisper+CTC
+
+def test_suspect_line_idx_pega_interpolada_e_esmagada():
+    lines = [
+        {"t": 1.0, "end": 3.0, "text": "frase normal com varias palavras"},   # ok
+        {"t": 4.0, "end": 6.0, "text": "outra frase", "interp": True},        # desistiu
+        {"t": 7.0, "end": 7.3, "text": "essa aqui tem seis palavras cantadas"},  # esmagada
+    ]
+    assert main.suspect_line_idx(lines) == [1, 2]
+
+
+def test_hibrido_usa_ctc_so_nas_linhas_ruins(monkeypatch):
+    """Whisper manda; CTC entra só onde ele não se ancorou — e só se couber
+    entre as vizinhas confiáveis."""
+    whisper = [
+        {"t": 10.0, "end": 12.0, "text": "primeira frase bem ancorada aqui"},
+        {"t": 12.5, "end": 12.6, "text": "melisma que ele esmagou totalmente"},  # ruim
+        {"t": 20.0, "end": 22.0, "text": "terceira frase bem ancorada aqui"},
+        {"t": 23.0, "end": 25.0, "text": "quarta frase", "interp": True},        # ruim
+    ]
+    ctc = [
+        {"t": 10.4, "end": 12.4, "text": "primeira frase bem ancorada aqui"},
+        {"t": 13.5, "end": 19.0, "text": "melisma que ele esmagou totalmente"},
+        {"t": 20.4, "end": 22.4, "text": "terceira frase bem ancorada aqui"},
+        {"t": 23.4, "end": 26.0, "text": "quarta frase"},
+    ]
+    monkeypatch.setattr(main, "whisper_align_lines",
+                        lambda sid, texts: [dict(x) for x in whisper])
+    monkeypatch.setattr(main, "mms_align_lines",
+                        lambda sid, texts: [dict(x) for x in ctc])
+    out = main.hybrid_align_lines("x", ["a"] * 4)
+    assert out[0]["t"] == 10.0 and not out[0].get("ctc")   # boa: whisper mantido
+    assert out[1]["t"] == 13.5 and out[1]["ctc"]           # ruim: CTC assumiu
+    assert out[2]["t"] == 20.0 and not out[2].get("ctc")
+    assert out[3]["ctc"]
+
+
+def test_hibrido_recusa_ctc_fora_do_trilho(monkeypatch):
+    """CTC que discorda das âncoras firmes do whisper é ignorado."""
+    whisper = [
+        {"t": 10.0, "end": 12.0, "text": "primeira frase bem ancorada aqui"},
+        {"t": 12.5, "end": 12.6, "text": "melisma que ele esmagou totalmente"},
+        {"t": 20.0, "end": 22.0, "text": "terceira frase bem ancorada aqui"},
+        {"t": 30.0, "end": 31.0, "text": "quarta frase", "interp": True},
+    ]
+    ctc = [dict(x) for x in whisper]
+    ctc[1] = {"t": 55.0, "end": 60.0, "text": "melisma que ele esmagou totalmente"}
+    monkeypatch.setattr(main, "whisper_align_lines",
+                        lambda sid, texts: [dict(x) for x in whisper])
+    monkeypatch.setattr(main, "mms_align_lines",
+                        lambda sid, texts: [dict(x) for x in ctc])
+    out = main.hybrid_align_lines("x", ["a"] * 4)
+    assert out[1]["t"] == 12.5 and not out[1].get("ctc")   # fora do trilho: recusado
+
+
+def test_hibrido_nao_chama_ctc_quando_whisper_vai_bem(monkeypatch):
+    chamou = []
+    monkeypatch.setattr(main, "whisper_align_lines", lambda sid, texts: [
+        {"t": i * 3.0, "end": i * 3.0 + 2.0, "text": "frase de teste aqui ok"}
+        for i in range(12)])
+    monkeypatch.setattr(main, "mms_align_lines",
+                        lambda sid, texts: chamou.append(1) or [])
+    out = main.hybrid_align_lines("x", ["a"] * 12)
+    assert len(out) == 12 and not chamou   # CTC nem foi acionado

@@ -516,6 +516,35 @@ Lição: a régua antiga MENTIA a favor (instrumento vazado conta como onset
 válido). A máscara não conserta o alinhamento sozinha — ela impede que
 ghost/clamp/extensão ancorem em instrumento e torna a medição honesta.
 
+### FASE B ✅ — motor HÍBRIDO whisper + CTC (decidido pelo A/B, não por gosto)
+
+`server/ab_align.py`, mesmo texto-base, régua de fala (mediana ms; entre
+parênteses quantas linhas ficaram verificáveis):
+
+| música | whisper | MMS/CTC | vence |
+|---|---|---|---|
+| Samurai (gaita+melisma) | 48 (8) | **22 (13)** | CTC |
+| Whisky a Go-Go | 1804 (1) | **1118 (3)** | CTC |
+| Take Me Out (tempo change) | 788 (8) | **492 (3)** | CTC |
+| Vamos Fugir | 32 (27) | 32 (34) | empate |
+| Não Deixe o Samba Morrer | **26 (34)** | 36 (31) | whisper |
+| Epitáfio | **28 (25)** | 38 (20) | whisper |
+| **I Have a Dream (controle)** | **34 (22)** | 112 (19) | whisper |
+
+**Placar 3×3×1 → o CTC NÃO vira titular** (regra do handoff: precisava de ≥5
+sem piorar o controle; ele piorou o controle 34→112ms). Mas o padrão é
+exatamente o que a teoria previa: **whisper é melhor quando consegue se
+ancorar; o CTC é melhor quando o whisper DESISTE** (melisma, andamento
+variável). Daí `hybrid_align_lines` (motor padrão, `engine="hibrido"`):
+whisper alinha; `suspect_line_idx` marca as linhas que ele interpolou
+(`interp`) ou esmagou (duração < 0,18s × nº de palavras = melisma pulado); só
+essas recebem o tempo do CTC — e **só se couberem entre as vizinhas
+confiáveis** (as âncoras firmes do whisper viram trilho, mesma ideia do
+reconcile). Se poucas linhas são suspeitas (<8%), o CTC nem roda (economia).
+Linha trocada fica marcada com `ctc: True`.
+
+Custo: MMS_FA baixa 1,18GB na 1ª vez; ~2-4min/música em CPU quando aciona.
+
 ## Pendências imediatas (próxima sessão COMEÇA por aqui)
 
 1. **Ícones SVG no lugar dos emojis** da UI (mudam de cor, combinam com a

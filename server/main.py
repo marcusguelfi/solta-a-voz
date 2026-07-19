@@ -1034,6 +1034,7 @@ def _interpolate_bad_lines(lines: list[dict], good: list[int]) -> None:
     for i, ln in enumerate(lines):
         if ln.pop("_ok"):
             continue
+        ln["interp"] = True  # não foi ancorada no áudio: candidata ao CTC (fase B)
         prev_g = max((g for g in good if g < i), default=None)
         next_g = min((g for g in good if g > i), default=None)
         if prev_g is None and next_g is None:
@@ -1191,6 +1192,50 @@ def mms_align_lines(sid: str, line_texts: list[str],
             lines[k]["t"] = round(lines[k - 1]["t"] + 0.05, 2)
         if lines[k]["end"] < lines[k]["t"]:
             lines[k]["end"] = round(lines[k]["t"] + 1.0, 2)
+    return lines
+
+
+def suspect_line_idx(lines: list[dict]) -> list[int]:
+    """Linhas em que o whisper NÃO se ancorou: interpoladas (ele desistiu) ou
+    esmagadas (duração impossível para o nº de palavras — sintoma clássico de
+    melisma, quando ele pula a vogal esticada e comprime a frase)."""
+    out = []
+    for i, ln in enumerate(lines):
+        n = max(1, len(ln.get("text", "").split()))
+        dur = (ln.get("end") or ln["t"]) - ln["t"]
+        if ln.get("interp") or dur < 0.18 * n:
+            out.append(i)
+    return out
+
+
+def hybrid_align_lines(sid: str, line_texts: list[str]) -> list[dict] | None:
+    """MOTOR PADRÃO do ALIGN v2 (decidido pelo A/B de 2026-07-19, 7 casos):
+    whisper é melhor quando se ancora (controle 34ms × 112ms do CTC), mas
+    DESISTE em melisma/andamento variável — e aí o CTC ganha feio (Samurai
+    48→22ms, Take Me Out 788→492ms). Então: whisper manda, e só as linhas onde
+    ele não se ancorou recebem o tempo do CTC — aceitas apenas se couberem
+    entre as vizinhas confiáveis (mesma lógica de trilho do reconcile)."""
+    lines = whisper_align_lines(sid, line_texts)
+    if not lines:
+        return mms_align_lines(sid, line_texts)
+    bad = suspect_line_idx(lines)
+    if len(bad) < max(2, len(lines) * 0.08):
+        return lines  # whisper se virou bem: não paga o custo do CTC
+    alt = mms_align_lines(sid, line_texts)
+    if not alt or len(alt) != len(lines):
+        return lines
+    trocadas = 0
+    for i in bad:
+        novo = alt[i]
+        piso = lines[i - 1]["end"] if i > 0 and i - 1 not in bad else 0.0
+        teto = lines[i + 1]["t"] if i + 1 < len(lines) and i + 1 not in bad else 1e9
+        if not (piso - 0.05 <= novo["t"] < teto - 0.05):
+            continue  # CTC discorda das âncoras firmes do whisper: mantém
+        lines[i] = {**novo, "end": round(min(novo["end"], max(teto - 0.05, novo["t"] + 0.4)), 2),
+                    "ctc": True}
+        trocadas += 1
+    if trocadas:
+        logging.info("híbrido: %d linha(s) do CTC em %s", trocadas, sid)
     return lines
 
 
@@ -1532,9 +1577,10 @@ def base_texts_for(entry: dict):
     return (orig_synced, base_lines, texts) if len(texts) >= 4 else None
 
 
-def align_lyrics_to_vocals(sid: str, engine: str = "whisper") -> dict | None:
+def align_lyrics_to_vocals(sid: str, engine: str = "hibrido") -> dict | None:
     """Re-cronometra a letra pela cantoria real. Funciona até com letra sem sync.
-    engine: "whisper" (padrão) ou "mms" (CTC — melhor em melisma)."""
+    engine: "hibrido" (padrão: whisper + CTC nas linhas que ele não ancorou),
+    "whisper" ou "mms"."""
     entry = _get_entry(sid)
     lyr = entry.get("lyrics") or {}
     base = base_texts_for(entry)
@@ -1542,7 +1588,8 @@ def align_lyrics_to_vocals(sid: str, engine: str = "whisper") -> dict | None:
         return None
     orig_synced, base_lines, texts = base
     lines = (mms_align_lines(sid, texts) if engine == "mms"
-             else whisper_align_lines(sid, texts))
+             else whisper_align_lines(sid, texts) if engine == "whisper"
+             else hybrid_align_lines(sid, texts))
     if not lines:
         return None
     reconciled = None
