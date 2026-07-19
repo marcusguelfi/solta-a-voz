@@ -1519,13 +1519,20 @@ def anchor_fix_lines(sid: str, lines: list[dict], radius: float = 12.0,
         alvo = [w for w in _norm_txt(ln["text"]).split() if w]
         if len(alvo) < 3:
             continue  # âncora fraca: não arrisca
-        # (1) o lugar ATUAL já bate com o canto? então não é problema nosso
-        if nota_aqui(alvo, ln["t"]) >= bad_score:
-            continue
+        # (1) o lugar ATUAL já bate com o canto? então não é problema nosso.
+        # ‼️ CICATRIZ: limiar ABSOLUTO não serve — "ter chorado mais" sobre o
+        # canto "deve ter amado mais" dá 0,67 só pelas palavrinhas em comum e
+        # a linha errada passava por certa. O critério é RELATIVO: só move se
+        # existir um lugar MUITO melhor que este.
+        aqui = nota_aqui(alvo, ln["t"])
+        if aqui >= 0.92:
+            continue  # praticamente exato: não encosta
         # (2)+(3) candidatos bons na vizinhança: fica com o MAIS PRÓXIMO
         _b, cands = varrer(alvo, ln["t"], radius, min_score)
         if not cands:
             continue
+        if max(c[2] for c in cands) - aqui < 0.25:
+            continue  # o outro lugar não é convincentemente melhor
         # entre os de nota MÁXIMA (janelas quase iguais empatam), o mais próximo:
         # a nota separa o casamento certo do "quase certo" (janela deslocada uma
         # palavra); a proximidade desempata refrão repetido.
@@ -1569,6 +1576,18 @@ def anchor_fix_lines(sid: str, lines: list[dict], radius: float = 12.0,
         ln.pop("words", None)  # tempo veio da âncora, não do alinhador
         ln["anchored"] = True
         fixed += 1
+    # ‼️ CICATRIZ: sem isto uma linha ancorada pulava por cima da vizinha e a
+    # letra ficava fora de ordem no player (Epitáfio: "E até errado mais" em
+    # 21,19s aparecendo DEPOIS de uma linha em 22,20s).
+    if fixed:
+        for i in range(1, len(lines)):
+            if lines[i]["t"] <= lines[i - 1]["t"]:
+                lines[i]["t"] = round(lines[i - 1]["t"] + 0.05, 2)
+            if lines[i]["end"] < lines[i]["t"] + 0.3:
+                lines[i]["end"] = round(lines[i]["t"] + 0.8, 2)
+            if lines[i - 1]["end"] > lines[i]["t"] - 0.02:
+                lines[i - 1]["end"] = round(
+                    max(lines[i - 1]["t"] + 0.4, lines[i]["t"] - 0.05), 2)
     return fixed
 
 
@@ -1645,6 +1664,41 @@ def clamp_ends_to_voice(sid: str, lines: list[dict]) -> int:
     return trimmed
 
 
+def alignment_agreement(sid: str, lines: list[dict]) -> float | None:
+    """Quanto o alinhamento CONCORDA com o que foi realmente cantado: média do
+    casamento texto-da-linha × palavras transcritas naquele instante. É a régua
+    interna que deixa o pipeline escolher entre duas versões do alinhamento em
+    vez de confiar cegamente numa delas."""
+    import difflib
+
+    wt = word_transcript(sid)
+    if not wt or not lines:
+        return None
+    words = [(a, b, _norm_txt(w).strip()) for a, b, w in wt]
+    words = [(a, b, w) for a, b, w in words if w]
+    if len(words) < 20:
+        return None
+    txt = [w for _a, _b, w in words]
+    notas = []
+    for ln in lines:
+        alvo = [w for w in _norm_txt(ln.get("text", "")).split() if w]
+        if len(alvo) < 3:
+            continue
+        n = len(alvo)
+        k0 = next((k for k in range(len(words)) if words[k][0] >= ln["t"] - 0.3), None)
+        if k0 is None:
+            notas.append(0.0)
+            continue
+        melhor = 0.0
+        for k in (k0, k0 + 1):
+            for span in (n - 1, n, n + 1):
+                if k < len(words) and span >= 2 and k + span <= len(words):
+                    melhor = max(melhor, difflib.SequenceMatcher(
+                        None, alvo, txt[k:k + span]).ratio())
+        notas.append(melhor)
+    return round(sum(notas) / len(notas), 4) if notas else None
+
+
 def reset_to_pristine(sid: str) -> bool:
     """Desfaz extensões acumuladas: volta o trilho pra fonte humana original.
     Sem pristineSynced (letras antigas), rebusca a letra na fonte."""
@@ -1691,7 +1745,26 @@ def align_lyrics_to_vocals(sid: str, engine: str = "hibrido") -> dict | None:
         return None
     reconciled = None
     if base_lines and len(base_lines) == len(lines):
-        reconciled = reconcile_with_lrc(lines, base_lines)
+        # ‼️ CICATRIZ (2026-07-19, caso Epitáfio): o reconcile foi criado quando
+        # o alinhador era fraco e não havia transcrição. Hoje ele às vezes
+        # DESTRÓI um alinhamento bom pra encaixar num LRC de outro master — no
+        # Epitáfio arrastou tudo 4,4s pra trás (o alinhador tinha acertado com
+        # 0,2s) e a 1ª frase caiu como fantasma em cima do silêncio: era esse o
+        # "ficou sem o começo". Agora o trilho não manda por decreto: aplica-se
+        # o reconcile numa CÓPIA e só se aceita se ele CONCORDAR MAIS com o que
+        # foi cantado de verdade.
+        antes = alignment_agreement(sid, lines)
+        copia = [dict(ln) for ln in lines]
+        info = reconcile_with_lrc(copia, base_lines)
+        depois = alignment_agreement(sid, copia)
+        if antes is None or depois is None or depois >= antes - 0.005:
+            lines[:] = copia
+            reconciled = info
+        else:
+            reconciled = {"skipped": "reconcile piorava a concordância",
+                          "agreement": [antes, depois]}
+            logging.info("reconcile recusado em %s: concordância %.3f -> %.3f",
+                         sid, antes, depois)
     # letra de versão mais longa (ao vivo): frases além do fim do áudio não
     # existem nesta gravação — descarta em vez de espremer no finalzinho
     duration = entry.get("duration") or 0

@@ -61,6 +61,11 @@ def measure(sid: str) -> dict:
     raw_err = audit.timing_errors(lines, raw_on)
     out = {"linhas": len(lines), "onsets_bruto": len(raw_on),
            "verificaveis_bruto": len(raw_err), "mediana_bruta_ms": med(raw_err)}
+    # régua NOVA e principal: concordância texto-da-linha × canto transcrito.
+    # A régua de onsets só verifica começo de frase após silêncio (58% das
+    # linhas no Epitáfio) — era por isso que ela dizia "32ms" e o ouvido do
+    # Marcus dizia "fora do tempo": os outros 42% ela não enxergava.
+    out["concordancia"] = main.alignment_agreement(sid, lines)
     masked = main.sung_active(sid, active, hop) if hasattr(main, "sung_active") else None
     if masked is not None:
         sp_on = audit.phrase_onsets(masked, hop)
