@@ -407,3 +407,48 @@ def test_is_live_title():
     assert main._is_live_title("MTV Unplugged - Hoje")
     assert not main._is_live_title("Flor de Tangerina")
     assert not main._is_live_title(None)
+
+
+# ------------------------------------------- fase A: máscara de fala cantada
+
+def _fake_map(monkeypatch, segments, covered):
+    monkeypatch.setattr(main, "speech_map",
+                        lambda sid, build=False, force=False:
+                        {"segments": segments, "covered": covered})
+    main._speech_cache.clear()
+
+
+def test_sung_active_apaga_instrumento_vazado(monkeypatch):
+    """Gaita/solo vazado no stem: energia existe, fala não → não conta como canto."""
+    hop = 0.1
+    active = [1] * 100  # 10s de "energia" contínua no stem de voz
+    # só 0-3s é fala cantada; 5-8s é um segmento de gaita (no_speech alto)
+    _fake_map(monkeypatch, [[0.0, 3.0, 0.05], [5.0, 8.0, 0.92]], [0.0, 10.0])
+    out = main.sung_active("x", active, hop)
+    assert out is not None
+    assert sum(out[0:30]) == 30          # canto preservado
+    assert sum(out[52:78]) == 0          # gaita zerada (fora da margem de 0,3s)
+
+
+def test_sung_active_nao_julga_fora_da_cobertura(monkeypatch):
+    hop = 0.1
+    active = [1] * 100
+    _fake_map(monkeypatch, [[0.0, 2.0, 0.05]], [0.0, 5.0])  # só inspecionou 5s
+    out = main.sung_active("x", active, hop)
+    assert sum(out[55:100]) == 45        # depois de 5s mantém tudo (sem evidência)
+    assert sum(out[25:48]) == 0          # dentro da cobertura, sem fala → zera
+
+
+def test_sung_active_descarta_mascara_catastrofica(monkeypatch):
+    """Transcrição furada apagaria a música toda: remédio pior que a doença."""
+    hop = 0.1
+    active = [1] * 100
+    _fake_map(monkeypatch, [[0.0, 0.2, 0.99]], [0.0, 10.0])  # nada é fala
+    assert main.sung_active("x", active, hop) is None
+
+
+def test_sung_energy_cai_pra_crua_sem_mapa(monkeypatch):
+    monkeypatch.setattr(main, "speech_map", lambda sid, build=False, force=False: None)
+    main._speech_cache.clear()
+    pitch = {"hop": 0.1, "energy": [1, 0, 1, 1]}
+    assert main.sung_energy("x", pitch) == [1, 0, 1, 1]

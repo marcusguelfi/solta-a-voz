@@ -157,6 +157,16 @@ def audit_song(sid: str, entry: dict) -> dict | None:
     pitch = json.loads(pitch_file.read_text(encoding="utf-8"))
     p_hop, midi = pitch["hop"], pitch["midi"]
     active, e_hop = energy_envelope(vocals)
+    # fase A: enxergar a verdade — instrumento vazado no stem (gaita, sax, coro)
+    # não é canto. Sem mapa de fala, cai na energia crua (comportamento antigo).
+    try:
+        import main as _srv
+
+        masked = _srv.sung_active(sid, list(active), e_hop)
+        if masked is not None:
+            active = masked
+    except Exception:
+        pass
 
     def frac(arr, hop, a, b):
         i0, i1 = max(0, int(a / hop)), min(len(arr), int(b / hop))

@@ -480,12 +480,43 @@ mesma ordem → casamento id↔nome validado com 12/12 âncoras conhecidas. Letr
 Lição: log com nomes salvou tudo — logs verbosos são backup acidental. Backup
 REAL da data/ segue no roadmap (agora com prioridade máxima).
 
-## Pendências imediatas (próxima sessão COMEÇA por aqui)
+## ALIGN v2 — EXECUÇÃO (2026-07-19)
 
-0. **➡️ ALIGN v2: executar `ALIGN_V2_HANDOFF.md` (raiz do repo)** — handoff
-   completo escrito em 2026-07-19 pro Opus: fases A (máscara de fala) → B
-   (MMS_FA A/B) → C (anchor por linha), com os 7 casos de referência, ids,
-   métrica, aceites e proibições. É A prioridade do CORE.
+Plano: `ALIGN_V2_HANDOFF.md`. Ferramentas novas: `server/measure_align.py`
+(métrica oficial, grava data/align_metrics.json por tag), `server/ab_align.py`
+(A/B de motores, não escreve na biblioteca), `server/realign_batch.py`.
+
+### FASE A ✅ — máscara de fala cantada (`speech_map` + `sung_energy`)
+
+Implementação: `speech_map(sid)` transcreve a MÚSICA INTEIRA com o modelo
+rápido e persiste `[[a, b, no_speech_prob]]` em `stems/{id}/speechmap.json`
+(DESVIO do handoff, deliberado: `transcribe_vocals` só cobre ~110s a partir
+do onset — máscara parcial não pegaria solo no meio/fim, que é justo o caso
+Samurai). `_speech_mask` monta o vetor; `sung_active`/`sung_energy` aplicam.
+Consumidores trocados: `drop_ghost_lines`, `clamp_ends_to_voice`,
+`uncovered_sung_regions` e o audit. **Fora da janela inspecionada NÃO julga**
+(mantém energia crua) e **descarta a máscara se ela apagaria >92% da energia**
+(transcrição furada não pode apagar a música). `vocal_start_from_energy` fica
+na energia crua de propósito: ele só escolhe onde começar o clipe da
+transcrição — depender do mapa seria circular.
+
+**O que a máscara revelou** (mediana do erro linha×onset, régua bruta → régua
+de fala; `frames_mascarados` = quanto do "canto" era instrumento):
+| música | bruta | fala | mascarado | leitura |
+|---|---|---|---|---|
+| Samurai | 52ms | **79ms** | 33,6% | 156s de 288s NÃO era voz: a régua bruta premiava âncora na GAITA |
+| Whisky a Go-Go | (cego: 2 onsets) | **2398ms** | 17,1% | energia saturada escondia 2,4s de atraso — só a máscara enxergou |
+| Take Me Out | 532ms | 574ms | 25,9% | tempo change (fase C) |
+| Vamos Fugir | 38ms | 37ms | 13,5% | ok |
+| Samba Morrer | 24ms | 26ms | 5,3% | problema é melisma, não vazamento |
+| Epitáfio | 28ms | 28ms | 0,0% | sem vazamento — é off-by-one (fase C) |
+| **I Have a Dream (controle)** | 36ms | **36ms** | 0,5% | **intacto ✅** |
+
+Lição: a régua antiga MENTIA a favor (instrumento vazado conta como onset
+válido). A máscara não conserta o alinhamento sozinha — ela impede que
+ghost/clamp/extensão ancorem em instrumento e torna a medição honesta.
+
+## Pendências imediatas (próxima sessão COMEÇA por aqui)
 
 1. **Ícones SVG no lugar dos emojis** da UI (mudam de cor, combinam com a
    proposta) + botão de esconder sidebar + responsividade (Fase 2).

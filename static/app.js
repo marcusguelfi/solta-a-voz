@@ -802,7 +802,7 @@ function metaHTML(song) {
   // sync "fino" = passou pelo whisper-align ou foi editado à mão; o resto
   // (LRC bruto/offset global) merece um aviso — e o editor resolve
   const unverified = song.status === "ready" && song.stems && hasSync &&
-    !["whisper", "manual"].includes(song.lyrics?.alignMethod);
+    !["whisper", "mms", "manual"].includes(song.lyrics?.alignMethod);
   return `
     <span class="pill">${fmtTime(song.duration)}</span>
     ${diff ? `<span class="pill diff ${diff.toLowerCase()}">${diff}</span>` : ""}
@@ -1503,7 +1503,7 @@ function setDiffBadge(lyr) {
   badge.title = d ? `${d.words} palavras em ${d.lines} linhas — ${d.wpm} palavras/min cantado` : "";
   // aviso: letra existe mas não passou pelo sync fino nem por edição humana
   $("sync-warn").hidden = !(lyr?.found &&
-    !["whisper", "manual"].includes(lyr.alignMethod));
+    !["whisper", "mms", "manual"].includes(lyr.alignMethod));
 }
 
 function updateOffsetLabel() {

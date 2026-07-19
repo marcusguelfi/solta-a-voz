@@ -824,6 +824,103 @@ def transcribe_vocals(sid: str, force: bool = False, max_seconds: int = 110,
     return text
 
 
+# ------------------------------------------------ máscara de fala cantada
+# ALIGN v2 fase A. Instrumento de pitch contínuo vazado no stem de voz (a GAITA
+# do Samurai é o caso-escola; a literatura de singing voice detection aponta
+# esses instrumentos como O falso positivo clássico) engana TODAS as nossas
+# regras de energia: fantasma, clamp, extensão e onset passam a tratar solo como
+# canto. A discriminação que funciona é LINGUÍSTICA: o Whisper devolve
+# no_speech_prob por segmento — gaita não tem fonemas. Aqui isso vira uma máscara
+# sobre a energia. Cobre a MÚSICA INTEIRA (transcribe_vocals só vê ~110s).
+
+SPEECH_NSP_MAX = 0.5      # acima disso o segmento não é fala cantada
+SPEECH_MARGIN = 0.3       # folga (s) nas bordas do segmento
+_speech_cache: dict[str, dict | None] = {}
+
+
+def speech_map(sid: str, build: bool = True, force: bool = False) -> dict | None:
+    """Segmentos de fala cantada da música inteira: {"segments": [[a,b,nsp]...],
+    "covered": [0, fim]}. Cacheado em stems/{id}/speechmap.json."""
+    cache = STEMS / sid / "speechmap.json"
+    if cache.exists() and not force:
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass
+    vocals = STEMS / sid / "vocals.mp3"
+    if not build or not vocals.exists():
+        return None
+    try:
+        model = _get_whisper_fast()  # identidade de fala não precisa do "small"
+        result = model.transcribe(str(vocals), language=detected_language(sid),
+                                  word_timestamps=False, suppress_silence=False)
+        segments = [[round(float(s.start), 2), round(float(s.end), 2),
+                     round(float(getattr(s, "no_speech_prob", 0.0) or 0.0), 3)]
+                    for s in result.segments]
+    except Exception:
+        logging.exception("mapa de fala falhou pra %s", sid)
+        return None
+    end = max((s[1] for s in segments), default=0.0)
+    data = {"segments": segments, "covered": [0.0, round(end, 2)]}
+    try:
+        cache.write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        pass
+    return data
+
+
+def _speech_mask(sid: str, n: int, hop: float, build: bool = False) -> list[bool] | None:
+    """True = há fala cantada naquele frame. None quando não há evidência."""
+    key = f"{sid}:{n}:{hop}"
+    if key in _speech_cache:
+        return _speech_cache[key]
+    data = speech_map(sid, build=build)
+    mask = None
+    if data and data.get("segments"):
+        c0, c1 = data.get("covered") or [0.0, 0.0]
+        mask = [False] * n
+        for k in range(n):
+            t = k * hop
+            if not (c0 <= t <= c1):
+                mask[k] = True  # fora do que inspecionamos: não julga
+        for a, b, nsp in data["segments"]:
+            if nsp > SPEECH_NSP_MAX:
+                continue
+            for k in range(max(0, int((a - SPEECH_MARGIN) / hop)),
+                           min(n, int((b + SPEECH_MARGIN) / hop) + 1)):
+                mask[k] = True
+    _speech_cache[key] = mask
+    return mask
+
+
+def sung_active(sid: str, active, hop: float, build: bool = False):
+    """Aplica a máscara num vetor de atividade vocal (0/1 ou bool). Devolve None
+    se não há máscara — ou se ela apagaria quase tudo (transcrição furada:
+    nunca deixar o remédio ser pior que a doença)."""
+    n = len(active)
+    mask = _speech_mask(sid, n, hop, build=build)
+    if mask is None:
+        return None
+    out = [(1 if (active[k] and mask[k]) else 0) for k in range(n)]
+    antes = sum(1 for v in active if v)
+    if antes and sum(out) / antes < 0.08:
+        logging.warning("máscara de fala descartada em %s (apagaria %.0f%%)",
+                        sid, 100 * (1 - sum(out) / antes))
+        return None
+    return out
+
+
+def sung_energy(sid: str, pitch: dict | None = None, build: bool = False):
+    """Energia do stem já limpa de instrumento vazado (ou a crua, se não há
+    evidência). Usada por ghost/clamp/extensão — o CORE do sync."""
+    pitch = pitch or load_pitch(sid)
+    energy = (pitch or {}).get("energy")
+    if not energy:
+        return None
+    masked = sung_active(sid, energy, pitch["hop"], build=build)
+    return masked if masked is not None else energy
+
+
 def detected_language(sid: str) -> str | None:
     """Idioma detectado pelo Whisper na transcrição (cacheado) — mais confiável
     que o heurístico guess_language pra alinhar (biblioteca tem PT/EN/ES)."""
@@ -973,12 +1070,105 @@ def whisper_align_lines(sid: str, line_texts: list[str]) -> list[dict] | None:
     return None
 
 
+# ------------------------------------------------ alinhador CTC (ALIGN v2 fase B)
+# O whisper alinha por PALAVRAS FALADAS: em melisma (vogal sustentada, "Quaaaando"
+# do Samba Morrer, "Saaaai" do Samurai) ele desiste e PULA trechos. O CTC tem o
+# token "blank", que ABSORVE duração — nota esticada alinha por construção.
+# MMS_FA = wav2vec2 multilíngue (1100+ idiomas, PT incluso), treinado em fala mas
+# com transferência comprovada pra canto. Emissões em blocos: a música inteira de
+# uma vez estoura a atenção quadrática.
+
+_mms = {}
+_mms_lock = threading.Lock()
+
+
+def _get_mms():
+    with _mms_lock:
+        if not _mms:
+            from torchaudio.pipelines import MMS_FA
+
+            _mms["bundle"] = MMS_FA
+            _mms["model"] = MMS_FA.get_model()
+            _mms["tokenizer"] = MMS_FA.get_tokenizer()
+            _mms["aligner"] = MMS_FA.get_aligner()
+        return _mms
+
+
+def _mms_words(text: str) -> list[str]:
+    """Palavras no alfabeto que o MMS entende (sem acento/pontuação)."""
+    return [w for w in _norm_txt(text).split() if w]
+
+
+def mms_align_lines(sid: str, line_texts: list[str],
+                    chunk_s: float = 20.0) -> list[dict] | None:
+    """Mesma assinatura de whisper_align_lines: [{t, end, text, words}], com
+    words RELATIVAS ao início da linha. None se não deu pra alinhar."""
+    import torch
+
+    vocals = STEMS / sid / "vocals.mp3"
+    if not vocals.exists():
+        return None
+    # cada linha vira uma lista de palavras normalizadas; guarda quantas por linha
+    per_line = [_mms_words(t) for t in line_texts]
+    flat = [w for ws in per_line for w in ws]
+    if len(flat) < 8:
+        return None
+    try:
+        import librosa
+
+        y, sr = librosa.load(str(vocals), sr=16000, mono=True)
+        wave = torch.from_numpy(y).unsqueeze(0)
+        m = _get_mms()
+        step = int(chunk_s * sr)
+        with torch.inference_mode():
+            parts = [m["model"](wave[:, i:i + step])[0] for i in range(0, wave.size(1), step)]
+            emission = torch.cat(parts, dim=1)
+            token_spans = m["aligner"](emission[0], m["tokenizer"](flat))
+    except Exception:
+        logging.exception("alinhamento MMS falhou pra %s", sid)
+        return None
+    if len(token_spans) != len(flat):
+        return None
+    ratio = wave.size(1) / emission.size(1) / sr  # frames -> segundos
+    times = [(spans[0].start * ratio, spans[-1].end * ratio) for spans in token_spans]
+
+    lines, i = [], 0
+    for text, ws in zip(line_texts, per_line):
+        if not ws:
+            lines.append(None)
+            continue
+        chunk = times[i:i + len(ws)]
+        i += len(ws)
+        start, end = chunk[0][0], chunk[-1][1]
+        ln = {"t": round(start, 2), "end": round(max(end, start + 0.3), 2), "text": text}
+        words = [[round(a - start, 2), round(b - start, 2), w]
+                 for (a, b), w in zip(chunk, ws)]
+        if len(words) >= 2:
+            ln["words"] = words
+        lines.append(ln)
+    # linha sem palavra utilizável: interpola entre as vizinhas (raro)
+    for k, ln in enumerate(lines):
+        if ln is not None:
+            continue
+        prev = next((lines[j] for j in range(k - 1, -1, -1) if lines[j]), None)
+        nxt = next((lines[j] for j in range(k + 1, len(lines)) if lines[j]), None)
+        t = (prev["end"] + 0.1) if prev else (nxt["t"] - 1.0 if nxt else 0.0)
+        lines[k] = {"t": round(max(0.0, t), 2), "end": round(max(0.0, t) + 1.0, 2),
+                    "text": line_texts[k]}
+    for k in range(1, len(lines)):  # tempos sempre crescentes
+        if lines[k]["t"] <= lines[k - 1]["t"]:
+            lines[k]["t"] = round(lines[k - 1]["t"] + 0.05, 2)
+        if lines[k]["end"] < lines[k]["t"]:
+            lines[k]["end"] = round(lines[k]["t"] + 1.0, 2)
+    return lines
+
+
 def uncovered_sung_regions(sid: str, lines: list[dict], min_len: float = 6.0) -> list[tuple[float, float]]:
     """Regiões com canto (energia) FORA de qualquer janela de frase — refrões
     repetidos/outros que o LRC não lista. É a causa do 'final sem letra' e do
     alinhador espremer frases (Péricles, Mulher de Fases)."""
     pitch = load_pitch(sid)
-    energy = (pitch or {}).get("energy")
+    energy = sung_energy(sid, pitch)  # gaita/solo não conta como canto (fase A)
     if not energy or not lines:
         return []
     hop = pitch["hop"]
@@ -1148,7 +1338,7 @@ def drop_ghost_lines(sid: str, lines: list[dict]) -> tuple[list[dict], int]:
     ou quando a interpolação espalhou linhas por cima de silêncio (a letra
     'passando devagarinho do nada'). O countdown assume esses intervalos."""
     pitch = load_pitch(sid)
-    energy = (pitch or {}).get("energy")
+    energy = sung_energy(sid, pitch)  # sem instrumento vazado (fase A)
     if not energy or len(lines) < 8:
         return lines, 0
     hop = pitch["hop"]
@@ -1205,7 +1395,7 @@ def clamp_ends_to_voice(sid: str, lines: list[dict]) -> int:
     instrumental inteiro. Usa a energia vocal (pitch.json) pra terminar a frase
     onde a voz de fato para. Só encurta; nunca mexe no início nem estica."""
     pitch = load_pitch(sid)
-    energy = (pitch or {}).get("energy")
+    energy = sung_energy(sid, pitch)  # solo instrumental não segura a frase (fase A)
     if not energy:
         return 0
     hop = pitch["hop"]
@@ -1239,11 +1429,10 @@ def clamp_ends_to_voice(sid: str, lines: list[dict]) -> int:
     return trimmed
 
 
-def align_lyrics_to_vocals(sid: str) -> dict | None:
-    """Re-cronometra a letra pela cantoria real. Funciona até com letra sem sync."""
-    entry = _get_entry(sid)
+def base_texts_for(entry: dict):
+    """Texto-base do alinhamento: trilho do LRC original (fonte humana) ou o
+    texto puro. Compartilhado pelo pipeline e pelos experimentos A/B."""
     lyr = entry.get("lyrics") or {}
-    # preserva o LRC original (fonte humana) — alinhamentos futuros validam contra ele
     orig_synced = lyr.get("origSynced") or lyr.get("synced")
     if orig_synced:
         base_lines = parse_lrc(orig_synced)
@@ -1253,9 +1442,20 @@ def align_lyrics_to_vocals(sid: str) -> dict | None:
         texts = [ln.strip() for ln in lyr["plain"].splitlines() if ln.strip()]
     else:
         return None
-    if len(texts) < 4:
+    return (orig_synced, base_lines, texts) if len(texts) >= 4 else None
+
+
+def align_lyrics_to_vocals(sid: str, engine: str = "whisper") -> dict | None:
+    """Re-cronometra a letra pela cantoria real. Funciona até com letra sem sync.
+    engine: "whisper" (padrão) ou "mms" (CTC — melhor em melisma)."""
+    entry = _get_entry(sid)
+    lyr = entry.get("lyrics") or {}
+    base = base_texts_for(entry)
+    if not base:
         return None
-    lines = whisper_align_lines(sid, texts)
+    orig_synced, base_lines, texts = base
+    lines = (mms_align_lines(sid, texts) if engine == "mms"
+             else whisper_align_lines(sid, texts))
     if not lines:
         return None
     reconciled = None
@@ -1290,7 +1490,7 @@ def align_lyrics_to_vocals(sid: str) -> dict | None:
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
     # trilho do LRC recusado (offset absurdo) = whisper sozinho numa faixa que
     # já se mostrou traiçoeira — rebaixa a confiança pro card avisar "revisar"
-    method = "whisper-suspeito" if (reconciled or {}).get("skipped") else "whisper"
+    method = engine + ("-suspeito" if (reconciled or {}).get("skipped") else "")
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
               "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
@@ -1411,6 +1611,14 @@ def process_song(sid: str) -> None:
     _run_ffmpeg_mp3(instr_wav, stem_dir / "instrumental.mp3")
     vocals_wav.unlink(missing_ok=True)
     instr_wav.unlink(missing_ok=True)
+
+    # 4.5) mapa de fala cantada da música inteira (fase A): sem ele, gaita/sax/
+    # coro vazado no stem viram "canto" pra ghost/clamp/extensão. Construído aqui,
+    # uma vez, antes de qualquer regra de energia rodar.
+    try:
+        speech_map(sid, build=True)
+    except Exception:
+        logging.exception("mapa de fala falhou pra %s", sid)
 
     # 5) forced alignment: re-cronometra cada linha pela CANTORIA (método definitivo;
     # os passos 3 servem de fallback se o Whisper não confiar no resultado)
