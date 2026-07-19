@@ -1865,6 +1865,40 @@ def reset_to_pristine(sid: str) -> bool:
     return bool(align_best_candidate(sid))
 
 
+def onset_error_median(sid: str, lines: list[dict]) -> float | None:
+    """Erro mediano (s) do início da linha × onset de frase REAL (energia do
+    áudio). ‼️ É a testemunha INDEPENDENTE: não passa pela transcrição, então
+    é a única que enxerga viés dos timestamps do ASR. Só conta linha que
+    inicia frase (silêncio antes) e tem onset plausível perto."""
+    import statistics
+
+    pitch = load_pitch(sid)
+    energy = sung_energy(sid, pitch)
+    if not energy or not lines:
+        return None
+    hop = pitch["hop"]
+    gap = max(1, int(0.4 / hop))
+    onsets, silencio = [], gap + 1
+    for k, v in enumerate(energy):
+        if v:
+            if silencio >= gap:
+                onsets.append(k * hop)
+            silencio = 0
+        else:
+            silencio += 1
+    if not onsets:
+        return None
+    errs = []
+    for i, ln in enumerate(lines):
+        fim_ant = (lines[i - 1].get("end") or lines[i - 1]["t"]) if i else -9
+        if i and (ln["t"] - fim_ant) <= 0.8:
+            continue  # canto contínuo: não dá pra verificar
+        d = min(abs(ln["t"] - o) for o in onsets)
+        if d <= 3.0:
+            errs.append(d)
+    return round(statistics.median(errs), 3) if len(errs) >= 4 else None
+
+
 def _melhor_alinhamento(sid: str, texts: list[str], folga: float = 0.06):
     """Escolhe o motor POR MÚSICA, medindo — nunca por preferência.
 
@@ -1877,24 +1911,40 @@ def _melhor_alinhamento(sid: str, texts: list[str], folga: float = 0.06):
     Medido em 2026-07-19 nos 7 casos: global venceu em 5 (Epitáfio 0,898→0,989
     com teto 0,996; controle 0,885→0,946) e perdeu em 2 (Whisky a Go-Go,
     Take Me Out) — daí a escolha ser por música, não global."""
+    # ‼️ ARMADILHA DE MEDIÇÃO (2026-07-19, quase entrou em produção): NÃO dá
+    # pra julgar o motor GLOBAL pela concordância. O global põe cada linha
+    # exatamente no tempo das palavras da transcrição, e a concordância compara
+    # a linha CONTRA ESSA MESMA transcrição — ela concorda consigo mesma por
+    # construção. Se os timestamps do ASR têm viés (têm: ~300-400ms), o global
+    # herda o viés e a concordância não vê nada. Medido: global marcava 0,989
+    # de concordância no Epitáfio enquanto a régua de energia (independente da
+    # transcrição) mostrava o erro subindo de 30ms para 396ms.
+    # Portanto: quem decide é a testemunha INDEPENDENTE (onset de energia);
+    # a concordância só desempata quando não há onsets verificáveis suficientes.
     candidatos = []
-    gl = global_align_lines(sid, texts)
-    if gl:
-        nota = alignment_agreement(sid, gl)
-        teto = agreement_ceiling(sid, gl)
-        if nota is not None and teto is not None and nota >= teto - folga:
-            logging.info("global aceito de cara em %s (%.3f de teto %.3f)",
-                         sid, nota, teto)
-            return gl, "global"
-        candidatos.append((nota or 0.0, "global", gl))
-    hb = hybrid_align_lines(sid, texts)
-    if hb:
-        candidatos.append((alignment_agreement(sid, hb) or 0.0, "hibrido", hb))
+    for nome, fn in (("global", global_align_lines), ("hibrido", hybrid_align_lines)):
+        try:
+            lines = fn(sid, texts)
+        except Exception:
+            logging.exception("motor %s falhou em %s", nome, sid)
+            continue
+        if not lines:
+            continue
+        candidatos.append({"nome": nome, "lines": lines,
+                           "onset": onset_error_median(sid, lines),
+                           "acordo": alignment_agreement(sid, lines) or 0.0})
     if not candidatos:
         return None, None
-    nota, nome, lines = max(candidatos, key=lambda c: c[0])
-    logging.info("motor escolhido em %s: %s (%.3f)", sid, nome, nota)
-    return lines, nome
+    com_onset = [c for c in candidatos if c["onset"] is not None]
+    if com_onset:
+        melhor = min(com_onset, key=lambda c: c["onset"])
+        logging.info("motor em %s: %s (onset %.0fms, concordância %.3f)",
+                     sid, melhor["nome"], 1000 * melhor["onset"], melhor["acordo"])
+    else:
+        melhor = max(candidatos, key=lambda c: c["acordo"])
+        logging.info("motor em %s: %s (sem onsets; concordância %.3f)",
+                     sid, melhor["nome"], melhor["acordo"])
+    return melhor["lines"], melhor["nome"]
 
 
 def base_texts_for(entry: dict):

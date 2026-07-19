@@ -13,6 +13,17 @@
 > | Whisky a Go-Go | 0,849 | 0,634 | 0,505 ✗ |
 > | Take Me Out | 0,833 | 0,798 | 0,774 ✗ |
 >
+> **‼️ ARMADILHA (achada ao validar, quase entrou em produção)**: a tabela
+> acima usa a CONCORDÂNCIA, que é **auto-referente para o motor global** — ele
+> põe cada linha no tempo das palavras da transcrição e é medido contra essa
+> mesma transcrição. Ele concorda consigo mesmo por construção. A régua de
+> ENERGIA (independente do ASR) mostrou o oposto: Epitáfio 30ms → 396ms,
+> controle 40ms → 332ms, Vamos Fugir 42ms → 883ms. O global herda o viés dos
+> timestamps do Whisper (~300-400ms). **Regra**: métrica que compartilha a
+> fonte com o método NÃO julga o método. Quem decide o motor agora é
+> `onset_error_median` (energia); a concordância só desempata quando faltam
+> onsets verificáveis.
+>
 > **A medição do teto corrigiu o pessimismo deste plano**: os tetos são ALTOS
 > (0,83–0,996), então o buraco é quase todo de ALINHAMENTO, não de ASR — e
 > perto de 1,00 É alcançável onde a transcrição é boa (Epitáfio: 0,989 com

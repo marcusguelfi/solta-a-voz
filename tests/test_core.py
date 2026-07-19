@@ -703,3 +703,24 @@ def test_agreement_ceiling_separa_transcricao_de_alinhamento(monkeypatch):
     # texto que NÃO foi cantado -> teto baixo (problema é transcrição/letra)
     inexistente = [{"t": 10.0, "end": 12.0, "text": "Frase que ninguém cantou aqui"}]
     assert main.agreement_ceiling("x", inexistente) < 0.6
+
+
+def test_onset_error_median_e_independente_da_transcricao(monkeypatch):
+    """CICATRIZ: a concordância é auto-referente pro motor global (ele põe a
+    linha no tempo da transcrição e é medido contra a própria transcrição).
+    Quem decide o motor é esta régua, que vem da ENERGIA do áudio."""
+    hop = 0.032
+    n = int(60 / hop)
+    energy = [0] * n
+    for a in (10.0, 20.0, 30.0, 40.0, 50.0):          # cinco frases cantadas
+        for k in range(int(a / hop), int((a + 2.0) / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    marcos = (10.0, 20.0, 30.0, 40.0, 50.0)
+    certo = [{"t": a, "end": a + 1.5, "text": f"frase {i}"} for i, a in enumerate(marcos)]
+    atrasado = [{"t": a + 0.4, "end": a + 1.9, "text": f"frase {i}"}
+                for i, a in enumerate(marcos)]
+    e_certo, e_atras = main.onset_error_median("x", certo), main.onset_error_median("x", atrasado)
+    assert e_certo is not None and e_atras is not None
+    assert e_certo < 0.1 and e_atras > 0.3           # enxerga o viés de 400ms
