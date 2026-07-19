@@ -1401,6 +1401,11 @@ def extend_lyrics_with_transcript(sid: str) -> int:
               # o texto completo vira o trilho do próximo realinhamento — senão o
               # align voltaria pro LRC furado e desfaria a extensão
               "origSynced": new_synced,
+              # ‼️ o trilho vira o texto ESTENDIDO (senão o próximo align desfaz
+              # a extensão), então uma rodada ruim envenenaria a base pra sempre.
+              # pristineSynced guarda a fonte humana original, gravada UMA vez.
+              "pristineSynced": lyr.get("pristineSynced") or lyr.get("origSynced")
+              or lyr.get("synced"),
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
               "extended": len(added)}
     _update_entry(sid, lyrics=result)
@@ -1633,6 +1638,19 @@ def clamp_ends_to_voice(sid: str, lines: list[dict]) -> int:
             ln["end"] = new_end
             trimmed += 1
     return trimmed
+
+
+def reset_to_pristine(sid: str) -> bool:
+    """Desfaz extensões acumuladas: volta o trilho pra fonte humana original.
+    Sem pristineSynced (letras antigas), rebusca a letra na fonte."""
+    entry = _get_entry(sid)
+    lyr = entry.get("lyrics") or {}
+    pristine = lyr.get("pristineSynced")
+    if pristine:
+        _update_entry(sid, lyrics={**lyr, "origSynced": pristine, "synced": pristine,
+                                   "lines": None, "extended": None})
+        return True
+    return bool(align_best_candidate(sid))
 
 
 def base_texts_for(entry: dict):

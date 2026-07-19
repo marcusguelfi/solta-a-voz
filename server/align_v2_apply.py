@@ -21,6 +21,7 @@ import main  # noqa: E402
 from measure_align import CASES, measure, resolve  # noqa: E402
 
 LOG = BASE / "data" / "align_v2_log.txt"
+FRESH = False
 
 
 def log(m: str) -> None:
@@ -37,6 +38,9 @@ def aplicar(sid: str, engine: str) -> None:
         return
     antes = measure(sid)
     t0 = time.time()
+    # 0) trilho limpo: extensões antigas viram origSynced e envenenam o align
+    if FRESH:
+        main.reset_to_pristine(sid)
     # 1) transcrição completa: máscara de fala (A) + palavras pras âncoras (C)
     if not (main.STEMS / sid / "words.json").exists():
         main.full_transcribe(sid)
@@ -66,6 +70,9 @@ def aplicar(sid: str, engine: str) -> None:
 if __name__ == "__main__":
     argv = sys.argv[1:]
     engine = "whisper"
+    FRESH = "--fresh" in argv
+    if FRESH:
+        argv.remove("--fresh")
     if "--engine" in argv:
         i = argv.index("--engine")
         engine = argv[i + 1]
