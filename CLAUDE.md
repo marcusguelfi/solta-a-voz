@@ -192,8 +192,26 @@ quero pro app."
 2. **Melhor fonte + junção de letras**: multi-fonte com ranking pela
    transcrição (LRCLIB ✅, letras.mus.br ✅ 2026-07-18, lyrics.ovh ✅; falta
    Genius/Musixmatch e MESCLAR fontes — pegar estrofe que falta numa da outra).
-3. **Anchor-matching por linha** (upgrade nomadkaraoke): apontar A LINHA errada
-   e corrigir só ela, não a música inteira.
+3. **ALIGN v2 (especificado 2026-07-19 pelos casos reais — PRÓXIMA SESSÃO):**
+   três frentes, cada uma mata uma classe de erro comprovada:
+   a) **Anchor-matching por linha** (nomadkaraoke): casar transcrição×letra
+      por linha e reancorar só a errada. Mata: off-by-one (Epitáfio), refrão
+      repetido escorregando (plain-only sem trilho).
+   b) **Alinhador CTC treinado pra CANTO** no lugar/apoio do whisper nos
+      casos difíceis: torchaudio `forced_align` + bundle MMS_FA (wav2vec2),
+      e referência acadêmica NUS AutoLyrixAlign (Gupta et al. — alinhamento
+      de LETRA A CANTO, treinado em canto, DALI dataset). CTC tem token
+      "blank" que ABSORVE duração → melisma ("Quaaaando" do Samba Morrer,
+      "Saaaai" do Samurai) alinha nativamente, onde o modelo de palavras do
+      whisper desiste e PULA TRECHOS. Whisper fica pra transcrição/identidade.
+   c) **Máscara de FALA no stem de voz** contra instrumento vazado: a GAITA
+      do Stevie (Samurai) cai no stem de voz e engana TODAS as regras de
+      energia (ghost/clamp/extensão/onset). Usar no_speech_prob dos segmentos
+      do whisper (já transcrevemos!) pra zerar energia em regiões sem fala
+      cantada — gaita/solo deixam de contar como canto.
+   Casos de teste: Samurai (gaita+melisma), Não Deixe o Samba Morrer
+   (melisma+pulos), Epitáfio (off-by-one), Take Me Out (tempo change).
+   I Have a Dream = controle (ficou perfeita — não regredir!).
 4. **Gráfico de tom preciso pra CANTORIA DO USUÁRIO**: revisar pipeline do mic
    (autocorrelação atual) — captar com precisão o que a pessoa canta; latência,
    oitava, vibrato. O lane é o feedback central do jogo.
