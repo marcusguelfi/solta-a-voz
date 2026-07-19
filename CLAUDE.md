@@ -585,6 +585,38 @@ Prova (controle, trilho limpo): whisper 40ms × híbrido 40ms — **idênticos**
 (o híbrido nem aciona o CTC nessa música), contra 36ms do baseline: dentro
 da tolerância. O híbrido não era o culpado; o trilho envenenado era.
 
+### RESULTADO FINAL do ALIGN v2 (2026-07-19) — honesto
+
+Régua de fala, trilho limpo (`--fresh`), motor híbrido, mediana do erro
+linha×onset (e nº de linhas — perder letra é regressão mesmo com número bom):
+
+| música | baseline | final | linhas | veredito |
+|---|---|---|---|---|
+| Whisky a Go-Go | 2398ms | **382ms** | 46 → 45 | **6× melhor** ✅ |
+| Take Me Out | 574ms | 574ms | 33 → 33 | empate |
+| Vamos Fugir | 37ms | 42ms | 61 → 61 | empate |
+| Epitáfio | 28ms | 32ms | 33 → 33 | empate (4 linhas reancoradas) |
+| Samba Morrer | 26ms | 34ms | 70 → 67 | empate (4 linhas do CTC) |
+| Samurai | 79ms | 95ms | 39 → 35 | empate (4 do CTC, +9 extensão) |
+| **I Have a Dream (controle)** | 36ms | 40ms | 29 → 29 | **intacto** ✅ |
+
+**Leitura honesta**: 1 vitória grande, 6 empates dentro do ruído. O ganho da
+v2 NÃO está na mediana das músicas que já estavam boas — está em (a) o pior
+caso da biblioteca cair 6×, (b) a métrica passar a ser honesta (a régua
+antiga premiava âncora em gaita), (c) o pipeline não ancorar mais em
+instrumento daqui pra frente, (d) off-by-one virar detectável e corrigível
+(Epitáfio: 4 linhas reancoradas sozinhas).
+
+**Regra de projeto que saiu daqui (vale pra tudo)**: *ação destrutiva usa o
+sinal conservador; ação de posicionamento usa o sinal preciso.* A máscara de
+fala é precisa mas incompleta (backing vocal e sussurro escapam), então ela
+posiciona (clamp/extensão/onset) e NUNCA apaga. `drop_ghost_lines` voltou pra
+energia crua + teto de 25%.
+
+**Só vale pra músicas (re)processadas**: máscara e âncoras dependem de
+`speechmap.json`/`words.json`, que o pipeline gera no passo 4.5. Acervo
+antigo continua como estava até passar por `align_v2_apply.py --fresh`.
+
 ## Pendências imediatas (próxima sessão COMEÇA por aqui)
 
 1. **Ícones SVG no lugar dos emojis** da UI (mudam de cor, combinam com a

@@ -1419,7 +1419,12 @@ def drop_ghost_lines(sid: str, lines: list[dict]) -> tuple[list[dict], int]:
     ou quando a interpolação espalhou linhas por cima de silêncio (a letra
     'passando devagarinho do nada'). O countdown assume esses intervalos."""
     pitch = load_pitch(sid)
-    energy = sung_energy(sid, pitch)  # sem instrumento vazado (fase A)
+    # ‼️ CICATRIZ (2026-07-19): apagar letra é a ação mais destrutiva do
+    # pipeline, então ela usa o sinal CONSERVADOR (energia CRUA = "tem algo
+    # aqui?"). Com a energia mascarada a regra comeu letra de verdade — Vamos
+    # Fugir foi de 61 pra 36 linhas, Whisky a Go-Go de 46 pra 27. A máscara
+    # serve pra POSICIONAR (clamp/extensão/onset), não pra deletar.
+    energy = (pitch or {}).get("energy")
     if not energy or len(lines) < 8:
         return lines, 0
     hop = pitch["hop"]

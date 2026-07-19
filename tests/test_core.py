@@ -609,3 +609,20 @@ def test_drop_ghost_tem_teto_proporcional(monkeypatch):
     lines = [{"t": i * 4.0, "end": i * 4.0 + 2.0, "text": f"linha {i}"} for i in range(40)]
     _keep, dropped = main.drop_ghost_lines("x", lines)
     assert dropped <= 10   # teto de 25%, não os 40 que a energia zerada pediria
+
+
+def test_drop_ghost_usa_energia_crua_nao_a_mascarada(monkeypatch):
+    """CICATRIZ: apagar letra usa o sinal conservador. A máscara de fala é
+    para POSICIONAR (clamp/extensão), nunca para deletar — com ela, Vamos
+    Fugir perdeu 25 das 61 linhas."""
+    hop = 0.032
+    n = int(120 / hop)
+    energia_crua = [1] * n                       # há canto o tempo todo
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energia_crua})
+    # máscara diria que nada é fala (transcrição incompleta): não pode apagar
+    monkeypatch.setattr(main, "sung_energy",
+                        lambda sid, pitch=None, build=False: [0] * n)
+    lines = [{"t": i * 4.0, "end": i * 4.0 + 3.0, "text": f"linha {i} cantada"}
+             for i in range(25)]
+    keep, dropped = main.drop_ghost_lines("x", lines)
+    assert dropped == 0 and len(keep) == 25
