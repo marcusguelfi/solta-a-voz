@@ -333,7 +333,9 @@ def fetch_lyrics(artist: str, title: str, album: str, duration: float) -> dict |
 
     def rank(r):
         dur_diff = abs((r.get("duration") or 0) - duration) if duration else 999
-        return (0 if r.get("syncedLyrics") else 1, dur_diff)
+        # regra do estúdio: letra de versão ao vivo só em último caso
+        live = 1 if _is_live_title(r.get("trackName")) and not _is_live_title(title) else 0
+        return (live, 0 if r.get("syncedLyrics") else 1, dur_diff)
 
     # 2) busca livre em escada: completa -> artista principal + título limpo -> só título
     seen_q = set()
@@ -408,6 +410,28 @@ def fetch_lyrics_ovh(artist: str, title: str) -> str | None:
     with urllib.request.urlopen(req, timeout=15) as r:
         text = (json.loads(r.read().decode()).get("lyrics") or "").replace("\r\n", "\n").strip()
     return text if len(text) > 80 else None
+
+
+LIVE_TITLE = re.compile(r"\b(ao vivo|live|ac[uú]stico|unplugged|acoustic)\b", re.IGNORECASE)
+
+
+def _is_live_title(title: str | None) -> bool:
+    return bool(LIVE_TITLE.search(title or ""))
+
+
+def source_similarity(cand_text: str, source_text: str | None) -> float | None:
+    """Concordância entre o texto de um candidato de letra e a fonte canônica
+    (letras.mus.br): média harmônica da sobreposição de palavras nas duas
+    direções, normalizadas. Música certa ≥ ~0.6; letra de OUTRA música < ~0.3."""
+    if not source_text:
+        return None
+    a = set(_norm_txt(cand_text or "").split())
+    b = set(_norm_txt(source_text).split())
+    if len(a) < 10 or len(b) < 10:
+        return None
+    inter = len(a & b)
+    p, r = inter / len(a), inter / len(b)
+    return round(2 * p * r / max(p + r, 1e-9), 3)
 
 
 def fetch_plain_fallback(artist: str, title: str) -> str | None:
@@ -587,6 +611,14 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
                 break
 
     duration = entry.get("duration") or 0
+    # fonte canônica (letras.mus.br) valida a ESCOLHA da letra — pedido do
+    # Marcus após LRCLIB entregar "outra música" e versão "(Ao Vivo)":
+    # "precisamos de validação do letras.com, não só confiar no que a IA ouviu"
+    letras_text = None
+    try:
+        letras_text = fetch_letras_mus(e_artist, e_title)
+    except Exception:
+        pass
     # transcrição do canto real: o sinal que diz se a letra é da MÚSICA CERTA
     # (correlação só mede timing; letra errada com canto denso ainda correlaciona).
     # Dica de idioma pelo texto dos candidatos evita transcrição-lixo (idioma errado).
@@ -610,13 +642,30 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
         dur_penalty = 0.15 if cand_dur and duration and abs(cand_dur - duration) > 25 else 0.0
         sim = lyric_similarity(cand.get("plainLyrics") or cand["syncedLyrics"], transcript) \
             if transcript else 0.0
-        # similaridade com o canto real domina; correlação/duração desempatam
-        score = sim * 2.0 + coverage - dur_penalty
+        # concordância com a fonte canônica + castigo pra versão ao vivo
+        # quando a NOSSA faixa não é ao vivo (regra do estúdio)
+        src_sim = source_similarity(cand.get("plainLyrics") or cand["syncedLyrics"],
+                                    letras_text)
+        live_pen = 0.25 if _is_live_title(cand.get("trackName")) \
+            and not _is_live_title(e_title) else 0.0
+        # similaridade com o canto real domina; fonte canônica pesa junto;
+        # correlação/duração/ao-vivo desempatam
+        score = sim * 2.0 + (src_sim or 0.0) * 1.2 + coverage - dur_penalty - live_pen
         if best is None or score > best[4]:
-            best = (cand, offset, coverage, score, sim)
+            best = (cand, offset, coverage, score, sim, src_sim)
     if not best:
         return None
-    cand, offset, coverage, _score, sim = best
+    cand, offset, coverage, _score, sim, src_sim = best
+    # nem a melhor candidata bate com a fonte canônica: o LRCLIB não tem essa
+    # música direito — o texto do letras.mus.br VIRA a letra (whisper cria o
+    # sync do zero a partir do texto puro)
+    if letras_text and src_sim is not None and src_sim < 0.45:
+        result = {"found": True, "synced": None, "plain": letras_text,
+                  "difficulty": None, "source": "letras.mus.br",
+                  "matched": {"artist": e_artist, "title": e_title},
+                  "srcMatch": src_sim}
+        _update_entry(sid, lyrics=result, autoOffset=0.0)
+        return result
     result = {
         "found": True,
         "synced": cand["syncedLyrics"],
@@ -625,6 +674,7 @@ def align_best_candidate(sid: str, pitch: dict | None = None) -> dict | None:
         "matched": {"artist": cand.get("artistName"), "title": cand.get("trackName")},
         "alignScore": coverage,
         "lyricMatch": sim if transcript else None,  # confiança de ser a letra CERTA
+        "srcMatch": src_sim,  # concordância com letras.mus.br (None = fonte indisponível)
     }
     _update_entry(sid, lyrics=result, autoOffset=offset)
     return result

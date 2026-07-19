@@ -451,6 +451,26 @@ REAL da data/ segue no roadmap (agora com prioridade máxima).
 6. Testar o Dockerfile num docker real (não testado — máquina local sem Docker
    no PATH); `docker compose up -d --build` no servidor doméstico.
 
+### Validação canônica na ESCOLHA da letra (2026-07-19, "a letra tá sendo um
+### PROBLEMA DO CARAIO" — Epitáfio e Flor de Tangerina)
+
+Casos: Flor de Tangerina veio do LRCLIB como versão "(Ao Vivo)" (estrutura
+diferente → desalinha no meio); Epitáfio ficou OFF-BY-ONE (1ª linha "Devia
+ter amado mais" caiu como ghost e cada linha ficou com o texto da vizinha —
+"ele se perde" no meio). Mitigação implementada em align_best_candidate:
+1. **letras.mus.br como fonte canônica da escolha**: `source_similarity`
+   (média harmônica da sobreposição de palavras) entre cada candidato e o
+   texto do letras; entra no score com peso 1,2. Guardado em `srcMatch`.
+2. **Melhor candidato discorda da fonte (srcMatch < 0.45)** → o texto do
+   letras.mus.br VIRA a letra (plain; whisper cria o sync) — `source:
+   "letras.mus.br"`.
+3. **Castigo ao vivo** (`_is_live_title`): candidato "(Ao Vivo)/Live/
+   Unplugged/Acústico" quando a NOSSA faixa não é ao vivo perde 0,25 no
+   score do align e vai pro fim da fila no rank do fetch_lyrics.
+Off-by-one residual (ghost engole 1ª linha e desloca textos) = caso do
+anchor-matching por linha (Fase 1.3) — a validação canônica NÃO conserta
+deslocamento, só identidade/versão.
+
 ### Rodada de validação 2026-07-18 (noite) — anti-alucinação + editor v2
 
 **Como UltraStar/UltraSinger sincronizam (resposta à pergunta do Marcus):**

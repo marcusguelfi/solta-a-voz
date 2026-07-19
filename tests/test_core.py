@@ -388,3 +388,22 @@ def test_reconcile_nunca_cria_tempo_negativo():
     lrc = [(0.5, "a"), (6.0, "b"), (12.0, "c")]
     main.reconcile_with_lrc(lines, lrc)  # offset ~0: linha 'a' fugiu do trilho
     assert all(l["t"] >= 0 for l in lines)
+
+
+def test_source_similarity_certa_vs_errada():
+    fonte = " ".join(["devia ter amado mais ter chorado mais ter visto o sol nascer",
+                      "ter arriscado mais e ate errado mais ter feito o que eu queria fazer"])
+    certa = "Devia ter amado mais, ter chorado mais! Ter visto o sol nascer, ter arriscado"
+    errada = "yesterday all my troubles seemed so far away now i need a place to hide"
+    assert main.source_similarity(certa, fonte) > 0.5
+    assert main.source_similarity(errada, fonte) < 0.2
+    assert main.source_similarity(certa, None) is None
+    assert main.source_similarity("curta", fonte) is None  # curto demais: não conclui
+
+
+def test_is_live_title():
+    assert main._is_live_title("Flor de Tangerina (Ao Vivo)")
+    assert main._is_live_title("Song (Live at Wembley)")
+    assert main._is_live_title("MTV Unplugged - Hoje")
+    assert not main._is_live_title("Flor de Tangerina")
+    assert not main._is_live_title(None)
