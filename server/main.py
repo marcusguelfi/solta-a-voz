@@ -2043,8 +2043,10 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     # de 0,65 o app avisa "⚠ revisar sync" sozinho — o Marcus não precisa mais
     # descobrir cantando (Samurai deu 0,48 e a régua de onsets dizia "98ms ok").
     acordo = alignment_agreement(sid, lines)
-    method = engine + ("-suspeito" if (reconciled or {}).get("skipped")
-                       or (acordo is not None and acordo < 0.65) else "")
+    # só a concordância decide o selo. Recusar o trilho do LRC virou comportamento
+    # NORMAL (e desejável — caso Epitáfio), não sintoma: marcar por isso poria
+    # "⚠ revisar sync" justamente nas músicas que o pipeline consertou.
+    method = engine + ("-suspeito" if (acordo is not None and acordo < 0.65) else "")
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
               "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),

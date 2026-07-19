@@ -617,7 +617,34 @@ energia crua + teto de 25%.
 `speechmap.json`/`words.json`, que o pipeline gera no passo 4.5. Acervo
 antigo continua como estava até passar por `align_v2_apply.py --fresh`.
 
-## ➡️ PRÓXIMO: `ALIGN_V3_PLAN.md` (plano pesquisado, ainda NÃO executado)
+### ALIGN v3 — EXECUTADO (fases 0 e 3) — estado final 2026-07-19
+
+Motor `auto` (padrão): tenta o alinhamento GLOBAL (âncoras+gaps, não roda
+modelo nenhum) e o HÍBRIDO, e escolhe por música pela **testemunha
+independente** `onset_error_median` (energia do áudio). Selo `-suspeito`
+quando a concordância < 0,65 → card mostra "⚠ revisar sync".
+
+| música | baseline v2 | FINAL | nota |
+|---|---|---|---|
+| Whisky a Go-Go | 2398ms | **316ms** | 7,6× melhor |
+| Epitáfio | 28ms / 33 linhas | 30ms / **35 linhas** | **1ª frase de volta** |
+| I Have a Dream (controle) | 36ms | 40ms | intacto |
+| Samba Morrer | 26ms | 32ms | empate |
+| Vamos Fugir | 37ms | 39ms | empate |
+| Samurai | 79ms | 98ms | empate (concordância 0,48 — segue marcada) |
+| Take Me Out | 574ms | 574ms | empate (ASR no teto: 0,833) |
+
+**As DUAS réguas e o que cada uma vê** (usar sempre as duas):
+- `onset_error_median` (energia) — **independente do ASR**, é quem julga
+  motor/timing. Cega em canto contínuo (vê ~58% das linhas).
+- `alignment_agreement` (texto × canto transcrito) — vê letra errada e
+  off-by-one, cobre quase tudo. **AUTO-REFERENTE para o motor global**: não
+  serve pra julgá-lo. Vira o selo de qualidade da música.
+- `agreement_ceiling` — separa erro de ASR de erro de alinhamento. Tetos
+  medidos: 0,83–0,996 (o ASR está melhor do que eu supunha; o buraco é
+  alinhamento).
+
+## ➡️ Continua aberto no `ALIGN_V3_PLAN.md`: fases 1 e 2
 
 Escrito 2026-07-19 a pedido do Marcus ("concordância perto de 1,00"), com
 pesquisa densa. **Descoberta que muda a meta**: a concordância soma DOIS
