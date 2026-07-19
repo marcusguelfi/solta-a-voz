@@ -482,6 +482,11 @@ REAL da data/ segue no roadmap (agora com prioridade máxima).
 
 ## Pendências imediatas (próxima sessão COMEÇA por aqui)
 
+0. **➡️ ALIGN v2: executar `ALIGN_V2_HANDOFF.md` (raiz do repo)** — handoff
+   completo escrito em 2026-07-19 pro Opus: fases A (máscara de fala) → B
+   (MMS_FA A/B) → C (anchor por linha), com os 7 casos de referência, ids,
+   métrica, aceites e proibições. É A prioridade do CORE.
+
 1. **Ícones SVG no lugar dos emojis** da UI (mudam de cor, combinam com a
    proposta) + botão de esconder sidebar + responsividade (Fase 2).
 2. **Fila de ~56 músicas** adicionadas pela família em 2026-07-18 processando;
