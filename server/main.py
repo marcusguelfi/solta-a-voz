@@ -1699,6 +1699,159 @@ def alignment_agreement(sid: str, lines: list[dict]) -> float | None:
     return round(sum(notas) / len(notas), 4) if notas else None
 
 
+def agreement_ceiling(sid: str, lines: list[dict]) -> float | None:
+    """ALIGN v3 fase 0 — o TETO da concordância nesta música.
+
+    Mesma conta da concordância, mas procurando o melhor casamento em QUALQUER
+    posição, não só onde a linha está. Separa as duas fontes de erro que a
+    concordância soma:
+      teto baixo   -> a TRANSCRIÇÃO não entendeu o canto (melisma, vazamento);
+                      nem alinhamento perfeito pontuaria alto. Nada a fazer no
+                      alinhador — sobe modelo de ASR/separação.
+      teto alto e concordância baixa -> é ALINHAMENTO. Isso a gente conserta.
+    """
+    import difflib
+
+    wt = word_transcript(sid)
+    if not wt or not lines:
+        return None
+    words = [_norm_txt(w).strip() for _a, _b, w in wt]
+    words = [w for w in words if w]
+    if len(words) < 20:
+        return None
+    notas = []
+    for ln in lines:
+        alvo = [w for w in _norm_txt(ln.get("text", "")).split() if w]
+        if len(alvo) < 3:
+            continue
+        n = len(alvo)
+        melhor = 0.0
+        for k in range(len(words) - 1):
+            for span in (n - 1, n, n + 1):
+                if span >= 2 and k + span <= len(words):
+                    melhor = max(melhor, difflib.SequenceMatcher(
+                        None, alvo, words[k:k + span]).ratio())
+            if melhor >= 0.999:
+                break
+        notas.append(melhor)
+    return round(sum(notas) / len(notas), 4) if notas else None
+
+
+def global_align_lines(sid: str, line_texts: list[str],
+                       min_cobertura: float = 0.35) -> list[dict] | None:
+    """ALIGN v3 fase 3 — ALINHAMENTO GLOBAL DE SEQUÊNCIAS (âncoras + gaps).
+
+    A formulação que a literatura e os sistemas de produção usam, no lugar das
+    heurísticas por linha: alinha a sequência INTEIRA de palavras da letra
+    contra a sequência INTEIRA de palavras transcritas do áudio. Os blocos que
+    casam viram ÂNCORAS (tempo vindo do canto real); os buracos entre elas são
+    interpolados.
+
+    Por que é melhor que tudo que tentamos antes:
+      • sem premissa de offset global -> imune a mudança de andamento;
+      • refrão repetido casa na ORDEM certa (é alinhamento de sequência, não
+        busca do "mais parecido");
+      • melisma/palavra mal transcrita vira gap interpolado entre âncoras
+        firmes, em vez de arrastar a frase;
+      • dá tempo por PALAVRA de graça (realce palavra a palavra).
+    """
+    import difflib
+
+    wt = word_transcript(sid)
+    if not wt:
+        return None
+    tw = [(a, b, _norm_txt(w).strip()) for a, b, w in wt]
+    tw = [(a, b, w) for a, b, w in tw if w]
+    if len(tw) < 20:
+        return None
+    T = [w for _a, _b, w in tw]
+
+    L, dono = [], []          # palavras da letra + de qual linha cada uma é
+    for i, texto in enumerate(line_texts):
+        for w in _norm_txt(texto).split():
+            if w:
+                L.append(w)
+                dono.append(i)
+    if len(L) < 8:
+        return None
+
+    # autojunk=False: com letra longa o difflib trataria palavras frequentes
+    # ("que", "eu") como lixo e jogaria fora âncoras boas
+    blocos = difflib.SequenceMatcher(None, L, T, autojunk=False).get_matching_blocks()
+    ini: list[float | None] = [None] * len(L)
+    fim: list[float | None] = [None] * len(L)
+    ancoradas = 0
+    for a, b, tam in blocos:
+        for k in range(tam):
+            ini[a + k], fim[a + k] = tw[b + k][0], tw[b + k][1]
+            ancoradas += 1
+    cobertura = ancoradas / len(L)
+    if cobertura < min_cobertura:
+        logging.info("alinhamento global recusado em %s: só %.0f%% das palavras "
+                     "casaram com o canto", sid, 100 * cobertura)
+        return None
+
+    # gaps: distribui o tempo entre as âncoras que cercam o buraco
+    PASSO = 0.35  # s por palavra quando não há âncora dos dois lados
+    k = 0
+    while k < len(L):
+        if ini[k] is not None:
+            k += 1
+            continue
+        j = k
+        while j < len(L) and ini[j] is None:
+            j += 1
+        antes = fim[k - 1] if k > 0 else None
+        depois = ini[j] if j < len(L) else None
+        n = j - k
+        if antes is not None and depois is not None:
+            passo = max((depois - antes) / (n + 1), 0.05)
+            for m in range(n):
+                ini[k + m] = round(antes + passo * (m + 1), 2)
+                fim[k + m] = round(ini[k + m] + passo * 0.9, 2)
+        elif antes is not None:                      # cauda sem âncora
+            for m in range(n):
+                ini[k + m] = round(antes + PASSO * (m + 1), 2)
+                fim[k + m] = round(ini[k + m] + PASSO * 0.9, 2)
+        elif depois is not None:                     # início sem âncora
+            for m in range(n):
+                ini[k + m] = round(max(0.0, depois - PASSO * (n - m)), 2)
+                fim[k + m] = round(ini[k + m] + PASSO * 0.9, 2)
+        else:
+            return None                              # nada casou: desiste
+        k = j
+
+    lines: list[dict] = []
+    for i, texto in enumerate(line_texts):
+        idx = [k for k in range(len(L)) if dono[k] == i]
+        if not idx:
+            lines.append(None)
+            continue
+        t0, t1 = ini[idx[0]], fim[idx[-1]]
+        ln = {"t": round(t0, 2), "end": round(max(t1, t0 + 0.3), 2), "text": texto}
+        palavras = [[round(ini[k] - t0, 2), round(fim[k] - t0, 2), L[k]] for k in idx]
+        if len(palavras) >= 2:
+            ln["words"] = palavras
+        lines.append(ln)
+    # linha sem palavra utilizável (só pontuação): encaixa entre as vizinhas
+    for i, ln in enumerate(lines):
+        if ln is not None:
+            continue
+        ant = next((lines[j] for j in range(i - 1, -1, -1) if lines[j]), None)
+        prox = next((lines[j] for j in range(i + 1, len(lines)) if lines[j]), None)
+        t = (ant["end"] + 0.1) if ant else ((prox["t"] - 1.0) if prox else 0.0)
+        lines[i] = {"t": round(max(0.0, t), 2), "end": round(max(0.0, t) + 1.0, 2),
+                    "text": line_texts[i]}
+    for i in range(1, len(lines)):
+        if lines[i]["t"] <= lines[i - 1]["t"]:
+            lines[i]["t"] = round(lines[i - 1]["t"] + 0.05, 2)
+        if lines[i]["end"] < lines[i]["t"] + 0.3:
+            lines[i]["end"] = round(lines[i]["t"] + 0.8, 2)
+    logging.info("alinhamento global em %s: %.0f%% das palavras ancoradas",
+                 sid, 100 * cobertura)
+    return lines
+
+
 def reset_to_pristine(sid: str) -> bool:
     """Desfaz extensões acumuladas: volta o trilho pra fonte humana original.
     Sem pristineSynced (letras antigas), rebusca a letra na fonte."""
@@ -1710,6 +1863,38 @@ def reset_to_pristine(sid: str) -> bool:
                                    "lines": None, "extended": None})
         return True
     return bool(align_best_candidate(sid))
+
+
+def _melhor_alinhamento(sid: str, texts: list[str], folga: float = 0.06):
+    """Escolhe o motor POR MÚSICA, medindo — nunca por preferência.
+
+    Ordem pensada pra ser barata: o alinhamento GLOBAL não roda modelo nenhum
+    (só usa a transcrição que já existe), então tenta primeiro. Se ele já está
+    no TETO do que a transcrição permite, não faz sentido pagar o alinhador
+    pesado — aceita e pronto (fica mais rápido E melhor). Senão, roda o híbrido
+    e fica com o que concordar mais com o canto real.
+
+    Medido em 2026-07-19 nos 7 casos: global venceu em 5 (Epitáfio 0,898→0,989
+    com teto 0,996; controle 0,885→0,946) e perdeu em 2 (Whisky a Go-Go,
+    Take Me Out) — daí a escolha ser por música, não global."""
+    candidatos = []
+    gl = global_align_lines(sid, texts)
+    if gl:
+        nota = alignment_agreement(sid, gl)
+        teto = agreement_ceiling(sid, gl)
+        if nota is not None and teto is not None and nota >= teto - folga:
+            logging.info("global aceito de cara em %s (%.3f de teto %.3f)",
+                         sid, nota, teto)
+            return gl, "global"
+        candidatos.append((nota or 0.0, "global", gl))
+    hb = hybrid_align_lines(sid, texts)
+    if hb:
+        candidatos.append((alignment_agreement(sid, hb) or 0.0, "hibrido", hb))
+    if not candidatos:
+        return None, None
+    nota, nome, lines = max(candidatos, key=lambda c: c[0])
+    logging.info("motor escolhido em %s: %s (%.3f)", sid, nome, nota)
+    return lines, nome
 
 
 def base_texts_for(entry: dict):
@@ -1728,7 +1913,7 @@ def base_texts_for(entry: dict):
     return (orig_synced, base_lines, texts) if len(texts) >= 4 else None
 
 
-def align_lyrics_to_vocals(sid: str, engine: str = "hibrido") -> dict | None:
+def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     """Re-cronometra a letra pela cantoria real. Funciona até com letra sem sync.
     engine: "hibrido" (padrão: whisper + CTC nas linhas que ele não ancorou),
     "whisper" ou "mms"."""
@@ -1738,9 +1923,14 @@ def align_lyrics_to_vocals(sid: str, engine: str = "hibrido") -> dict | None:
     if not base:
         return None
     orig_synced, base_lines, texts = base
-    lines = (mms_align_lines(sid, texts) if engine == "mms"
-             else whisper_align_lines(sid, texts) if engine == "whisper"
-             else hybrid_align_lines(sid, texts))
+    if engine == "auto":
+        lines, escolhido = _melhor_alinhamento(sid, texts)
+        engine = escolhido or "auto"
+    else:
+        lines = (mms_align_lines(sid, texts) if engine == "mms"
+                 else whisper_align_lines(sid, texts) if engine == "whisper"
+                 else global_align_lines(sid, texts) if engine == "global"
+                 else hybrid_align_lines(sid, texts))
     if not lines:
         return None
     reconciled = None

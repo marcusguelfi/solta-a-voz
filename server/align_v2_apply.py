@@ -69,7 +69,7 @@ def aplicar(sid: str, engine: str) -> None:
 
 if __name__ == "__main__":
     argv = sys.argv[1:]
-    engine = "whisper"
+    engine = "auto"
     FRESH = "--fresh" in argv
     if FRESH:
         argv.remove("--fresh")

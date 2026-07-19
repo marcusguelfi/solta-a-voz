@@ -1,5 +1,26 @@
 # ALIGN v3 — plano para levar a concordância ao teto real
 
+> **STATUS (2026-07-19): Fases 0 e 3 EXECUTADAS.** Fases 1 (Jamendo) e 2 (GPU)
+> continuam abertas. Resultado medido nos 7 casos:
+>
+> | música | teto do ASR | antes | global |
+> |---|---|---|---|
+> | Epitáfio | 0,996 | 0,898 | **0,989** |
+> | I Have a Dream (controle) | 0,965 | 0,885 | **0,946** |
+> | Vamos Fugir | 0,905 | 0,825 | **0,883** |
+> | Samba Morrer | 0,935 | 0,828 | **0,862** |
+> | Samurai | 0,947 | 0,481 | **0,668** |
+> | Whisky a Go-Go | 0,849 | 0,634 | 0,505 ✗ |
+> | Take Me Out | 0,833 | 0,798 | 0,774 ✗ |
+>
+> **A medição do teto corrigiu o pessimismo deste plano**: os tetos são ALTOS
+> (0,83–0,996), então o buraco é quase todo de ALINHAMENTO, não de ASR — e
+> perto de 1,00 É alcançável onde a transcrição é boa (Epitáfio: 0,989 com
+> teto 0,996). Como o global perde em 2 de 7, o motor virou `auto`: tenta o
+> global (que não roda modelo nenhum — só usa a transcrição existente) e,
+> se ele já estiver no teto, aceita de cara (mais rápido E melhor); senão
+> roda o híbrido e fica com o que mais concordar com o canto.
+
 Escrito em 2026-07-19 após pesquisa densa (fontes no fim), a pedido do Marcus:
 "quero que a concordância chegue muito perto de 1,00". **Nenhum código foi
 mudado para escrever este plano** — ele existe para ser discutido antes.

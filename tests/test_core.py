@@ -626,3 +626,80 @@ def test_drop_ghost_usa_energia_crua_nao_a_mascarada(monkeypatch):
              for i in range(25)]
     keep, dropped = main.drop_ghost_lines("x", lines)
     assert dropped == 0 and len(keep) == 25
+
+
+# ------------------------------------- ALIGN v3: alinhamento global de sequências
+
+def _wt(monkeypatch, pares, passo=0.4):
+    """pares = [(t, "frase cantada")] -> transcrição palavra a palavra."""
+    words = []
+    for t, frase in pares:
+        for i, w in enumerate(frase.split()):
+            words.append([round(t + i * passo, 2), round(t + (i + 1) * passo - 0.05, 2), w])
+    monkeypatch.setattr(main, "word_transcript", lambda sid, build=False: words)
+    return words
+
+
+def test_global_align_usa_o_tempo_do_canto(monkeypatch):
+    _wt(monkeypatch, [(10.0, "agora eu era o heroi e o meu cavalo"),
+                      (20.0, "so falava ingles a noiva do cowboy"),
+                      (30.0, "era voce alem de outras tres")])
+    linhas = main.global_align_lines("x", ["Agora eu era o herói e o meu cavalo",
+                                           "Só falava inglês a noiva do cowboy",
+                                           "Era você além de outras três"])
+    assert linhas is not None
+    assert abs(linhas[0]["t"] - 10.0) < 0.2
+    assert abs(linhas[1]["t"] - 20.0) < 0.2
+    assert abs(linhas[2]["t"] - 30.0) < 0.2
+    assert linhas[0]["words"] and len(linhas[0]["words"]) == 9   # tempo por palavra
+
+
+def test_global_align_interpola_palavra_nao_reconhecida(monkeypatch):
+    """Melisma/palavra mal transcrita vira gap interpolado entre âncoras, sem
+    arrastar a frase inteira."""
+    _wt(monkeypatch, [(10.0, "quando eu XXXX pisar mais na avenida"),
+                      (20.0, "vou deixar a saudade ficar por aqui"),
+                      (30.0, "nao deixe o samba morrer nao deixe o samba acabar")])
+    linhas = main.global_align_lines("x", ["Quando eu não puder pisar mais na avenida",
+                                           "Vou deixar a saudade ficar por aqui",
+                                           "Não deixe o samba morrer não deixe o samba acabar"])
+    assert linhas is not None
+    assert abs(linhas[0]["t"] - 10.0) < 0.3      # âncora do início segura
+    assert abs(linhas[1]["t"] - 20.0) < 0.3      # a linha seguinte não escorregou
+
+
+def test_global_align_imune_a_mudanca_de_andamento(monkeypatch):
+    """Sem premissa de offset global: cada trecho ancora onde foi cantado."""
+    _wt(monkeypatch, [(10.0, "primeira frase da musica bem devagar aqui"),
+                      (60.0, "segunda frase depois de uma pausa enorme mesmo"),
+                      (65.0, "terceira frase agora bem rapida de verdade"),
+                      (72.0, "quarta frase pra fechar a contagem direito")])
+    linhas = main.global_align_lines("x", ["Primeira frase da música bem devagar aqui",
+                                           "Segunda frase depois de uma pausa enorme mesmo",
+                                           "Terceira frase agora bem rápida de verdade",
+                                           "Quarta frase pra fechar a contagem direito"])
+    assert abs(linhas[1]["t"] - 60.0) < 0.3
+    assert abs(linhas[2]["t"] - 65.0) < 0.3
+
+
+def test_global_align_recusa_quando_nada_casa(monkeypatch):
+    """Transcrição de outra música: não force alinhamento, devolve None."""
+    _wt(monkeypatch, [(10.0, "yesterday all my troubles seemed so far away now"),
+                      (20.0, "suddenly i am not half the man i used to be")])
+    linhas = main.global_align_lines("x", ["Agora eu era o herói e o meu cavalo",
+                                           "Só falava inglês a noiva do cowboy",
+                                           "Era você além de outras três"])
+    assert linhas is None
+
+
+def test_agreement_ceiling_separa_transcricao_de_alinhamento(monkeypatch):
+    _wt(monkeypatch, [(10.0, "agora eu era o heroi"),
+                      (20.0, "e o meu cavalo so falava ingles"),
+                      (30.0, "a noiva do cowboy era voce alem de outras tres")])
+    # linha no lugar ERRADO, mas o texto existe no canto -> teto alto
+    fora = [{"t": 50.0, "end": 52.0, "text": "Agora eu era o herói"}]
+    assert main.agreement_ceiling("x", fora) > 0.9
+    assert main.alignment_agreement("x", fora) < 0.4
+    # texto que NÃO foi cantado -> teto baixo (problema é transcrição/letra)
+    inexistente = [{"t": 10.0, "end": 12.0, "text": "Frase que ninguém cantou aqui"}]
+    assert main.agreement_ceiling("x", inexistente) < 0.6
