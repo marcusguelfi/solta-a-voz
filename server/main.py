@@ -2428,16 +2428,36 @@ def _melhor_alinhamento(sid: str, texts: list[str], folga: float = 0.06):
             continue
         if not lines:
             continue
+        cob = display_coverage(sid, lines)
         candidatos.append({"nome": nome, "lines": lines,
                            "onset": onset_error_median(sid, lines),
+                           "cobertura": (cob or {}).get("cobertura"),
                            "acordo": alignment_agreement(sid, lines) or 0.0})
     if not candidatos:
         return None, None
+
+    # ‼️ PORTEIRO (Bad Boys, 2026-07-20): TODAS as réguas anteriores olhavam só
+    # o INÍCIO das linhas, então um alinhamento que amontoa a letra inteira nos
+    # primeiros 45s de uma música de 229s passava com nota 0,964 — as 38 linhas
+    # estavam certas UMA EM RELAÇÃO À OUTRA, e ninguém perguntava se cobriam a
+    # música. Candidato que deixa o cantor sem letra na maior parte do canto
+    # está quebrado, por melhor que sejam seus onsets.
+    MIN_COB = 0.55
+    sadios = [c for c in candidatos if (c["cobertura"] or 0) >= MIN_COB]
+    if sadios and len(sadios) < len(candidatos):
+        for c in candidatos:
+            if c not in sadios:
+                logging.info("motor %s recusado em %s: cobre só %.0f%% do canto "
+                             "(letra amontoada ou faltando)",
+                             c["nome"], sid, 100 * (c["cobertura"] or 0))
+        candidatos = sadios
+
     com_onset = [c for c in candidatos if c["onset"] is not None]
     if com_onset:
         melhor = min(com_onset, key=lambda c: c["onset"])
-        logging.info("motor em %s: %s (onset %.0fms, concordância %.3f)",
-                     sid, melhor["nome"], 1000 * melhor["onset"], melhor["acordo"])
+        logging.info("motor em %s: %s (onset %.0fms, concordância %.3f, cobertura %s)",
+                     sid, melhor["nome"], 1000 * melhor["onset"], melhor["acordo"],
+                     melhor["cobertura"])
     else:
         melhor = max(candidatos, key=lambda c: c["acordo"])
         logging.info("motor em %s: %s (sem onsets; concordância %.3f)",
@@ -2547,12 +2567,22 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     # só a concordância decide o selo. Recusar o trilho do LRC virou comportamento
     # NORMAL (e desejável — caso Epitáfio), não sintoma: marcar por isso poria
     # "⚠ revisar sync" justamente nas músicas que o pipeline consertou.
-    method = engine + ("-suspeito" if (acordo is not None and acordo < 0.65) else "")
+    # ‼️ o selo agora olha as TRÊS coisas, porque cada régua tem um ponto cego:
+    #   acordo    — vê letra errada, mas aprovou o Bad Boys (0,964) que não tem
+    #               letra na tela em 70% do canto;
+    #   cobertura — vê letra faltando/amontoada, cega pro tempo estar deslocado;
+    #   percept   — vê o deslocamento como o OUVIDO sente (atraso dói mais).
+    cob = display_coverage(sid, lines)
+    percept = perceptual_score(sid, lines)
+    ruim = ((acordo is not None and acordo < 0.65)
+            or ((cob or {}).get("cobertura") is not None and cob["cobertura"] < 0.7)
+            or ((percept or {}).get("nota") is not None and percept["nota"] < 0.55))
+    method = engine + ("-suspeito" if ruim else "")
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
               "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
               "alignMethod": method, "reconciled": reconciled, "agreement": acordo,
-              "quality": qual}
+              "quality": qual, "coverage": cob, "perceptual": percept}
     _update_entry(sid, lyrics=result, autoOffset=0)
     return result
 

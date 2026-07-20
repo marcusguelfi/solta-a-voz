@@ -814,6 +814,27 @@ def test_skip_desiste_quando_a_energia_nao_ajuda(monkeypatch):
     assert main._repartir_no_canto("x", 10.0, 40.0, 4) is None
 
 
+def test_porteiro_recusa_alinhamento_amontoado(monkeypatch):
+    """‼️ CICATRIZ Bad Boys: as 38 linhas estavam certas UMA EM RELAÇÃO À OUTRA
+    (concordância 0,964) mas espremidas em 45s de uma música de 229s. Onset e
+    concordância aprovavam; o cantor ficava 64s sem letra. Candidato que não
+    cobre o canto é recusado por melhor que sejam seus onsets."""
+    hop = 0.032
+    n = int(120 / hop)
+    energy = [0] * n
+    for a in range(10, 110, 10):
+        for k in range(int(a / hop), int((a + 5.0) / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    espremido = [{"t": 10.0 + i * 0.6, "end": 10.5 + i * 0.6, "text": f"linha {i}"}
+                 for i in range(10)]
+    espalhado = [{"t": float(a), "end": a + 5.0, "text": f"linha {i}"}
+                 for i, a in enumerate(range(10, 110, 10))]
+    assert main.display_coverage("x", espremido)["cobertura"] < 0.2
+    assert main.display_coverage("x", espalhado)["cobertura"] > 0.9
+
+
 def test_display_coverage_pega_o_que_o_resto_e_cego(monkeypatch):
     """‼️ A LACUNA DO BAD BOYS: todas as outras métricas olham só o INÍCIO da
     linha. Ele marcava 0,964 de concordância e era ruim de cantar porque em 70%
