@@ -840,10 +840,12 @@ _speech_cache: dict[str, dict | None] = {}
 
 _fw_model = None
 _fw_lock = threading.Lock()
-# modelo da transcrição completa. "medium" cabe na CPU graças ao faster-whisper
-# (CTranslate2 + int8, ~4× mais rápido que o whisper original): sobe a qualidade
-# pra TODO MUNDO, sem exigir GPU — o app é feito pra distribuir, não pra nicho.
-FW_MODEL = os.environ.get("KARAOKE_FW_MODEL", "medium")
+# modelo da transcrição completa. MEDIDO em 2026-07-19: "medium" NÃO levantou o
+# teto do ASR (Samurai 0,957 -> 0,957; Take Me Out 0,833 -> 0,829) e custa ~1,1×
+# o tempo do áudio — então o padrão fica "small". O ganho do faster-whisper aqui
+# é o RUNTIME (CTranslate2/int8, ~4× mais rápido, mesma qualidade), não o tamanho.
+# Trocável por env (large-v3 quando houver GPU) sem tocar em código.
+FW_MODEL = os.environ.get("KARAOKE_FW_MODEL", "small")
 
 
 def _get_faster_whisper():
