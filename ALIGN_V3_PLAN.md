@@ -155,6 +155,56 @@ realista: concordância no teto do ASR (~0,85-0,92 na maioria) e AAE < 0,3s
 medido em Jamendo — com o caminho aberto para <0,2s (SOTA).** Prometer 1,00
 seria mentir sobre como a métrica funciona.
 
+## 6. O CORE: por que a concordância não encosta no teto (pesquisa 2026-07-19)
+
+**As duas medidas medem coisas diferentes de propósito:**
+- **Teto** — "o texto desta linha existe em ALGUM lugar da transcrição?" Trata
+  cada linha como independente, pode buscar no fim da música.
+- **Concordância** — "o texto bate com o que foi cantado NA POSIÇÃO da linha?"
+  Precisa respeitar a ORDEM da letra e colocar TODAS as linhas em algum lugar.
+
+O teto é **limite superior teórico**, não meta: é como dizer "cada peça deste
+quebra-cabeça existe na caixa" — verdade, mas montar exige que todas encaixem
+ao mesmo tempo, na ordem.
+
+**A literatura nomeia exatamente o nosso problema**: *"instrumental sections
+and annotation errors create problems where text and audio sequences don't
+match one-to-one, which is more severe for lyrics than speech due to the
+prominence of unannotated instrumental sections and general annotation
+errors"* (Low Resource Audio-to-Lyrics Alignment, arXiv 2102.09202). Ou seja:
+letra e áudio NÃO são sequências 1:1 — e todo o nosso pipeline hoje assume que
+são, forçando cada linha a uma posição.
+
+**As três causas do buraco, na nossa ordem de impacto:**
+1. **Letra tem material que o áudio não tem** (verso não cantado nesta
+   gravação, ordem diferente, texto oficial × execução). Forçadas a algum
+   lugar, essas linhas caem em posição interpolada e derrubam a concordância.
+2. **Regiões sem transcrição** (gaita, melisma, voz processada). Samurai tem
+   36 palavras/min contra 51 do Epitáfio. Sem âncora, interpolar é chute.
+3. **Repetições ambíguas** ("Ai/Vai/Sai, quanto querer"): o teto casa qualquer
+   uma com qualquer uma; o alinhamento tem que escolher a certa.
+
+**O que a literatura faz e nós NÃO fazemos (as 3 correções do v4):**
+- **a) Alinhamento LOCAL (Smith-Waterman) no lugar do global**: com ganho de
+  match, penalidade de mismatch e de gap, ele acha as ilhas de alta confiança
+  e **NÃO força o resto**. Hoje usamos `difflib` (Ratcliff-Obershelp), que não
+  tem penalidade de gap nem pontuação — casa "o que der" e o resto vira
+  interpolação cega.
+- **b) Estados de SKIP/pausa explícitos** (padrão dos HMM de alinhamento de
+  letra): o decodificador pode consumir ÁUDIO sem consumir TEXTO — é assim que
+  instrumental longo deixa de arrastar a letra.
+- **c) CONFIANÇA POR LINHA**: linha dentro de bloco âncora forte = confiável;
+  linha interpolada = incerta. Isso deve (1) aparecer na UI (não fingir
+  precisão que não temos), (2) entrar na métrica (medir separado o que
+  afirmamos saber) e (3) guiar o editor humano direto às linhas incertas.
+
+**Consequência para a métrica**: a concordância global mistura linhas
+ancoradas com interpoladas. O certo é reportar **concordância nas ancoradas**
+(a qualidade real do alinhamento) e **% de cobertura ancorada** (o quanto da
+música temos evidência). Uma música com 60% de cobertura e 0,95 nas ancoradas
+é MUITO melhor que uma com 0,70 uniforme de chute — hoje a métrica não
+distingue as duas.
+
 ## Fontes
 - MIREX Lyrics-to-Audio Alignment (métricas AAE/PCS) — music-ir.org/mirex
 - Jamendo dataset: github.com/f90/jamendolyrics · Jam-ALT: audioshake.github.io/jam-alt
@@ -165,3 +215,9 @@ seria mentir sobre como a métrica funciona.
 - nomadkaraoke/karaoke-gen (anchor/gap + revisão humana)
 - Whisper em letras (large-v3 superior; WER de canto): openwhispr.com,
   arxiv.org/pdf/2510.22295 (VietLyrics, WER 24,6%)
+- Low Resource Audio-to-Lyrics Alignment (o problema do 1:1): arxiv.org/pdf/2102.09202
+- Acoustic Modeling for Automatic Lyrics-to-Audio Alignment (HMM + short pause
+  states opcionais/skip): arxiv.org/pdf/1906.10369
+- Subsequence DTW (alinhamento local/parcial): audiolabs-erlangen.de/resources/MIR/FMP/C7/C7S2_SubsequenceDTW.html
+- Smith-Waterman em música (match gain, mismatch/gap penalty, ganho não-negativo):
+  Improved Handling of Repeats and Jumps in Audio-Sheet Synchronization, arxiv.org/pdf/2007.14580
