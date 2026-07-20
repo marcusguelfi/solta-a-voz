@@ -1,5 +1,10 @@
 # Solta a Voz no servidor doméstico:  docker compose up -d --build
 # Depois abra http://IP-DO-SERVIDOR:8777 (o preparo usa bastante CPU).
+#
+# ‼️ NUNCA rode o servidor local (start.bat) AO MESMO TEMPO que este container:
+# o volume abaixo aponta pra MESMA pasta ./data, e o lock de arquivo NÃO
+# atravessa a fronteira host/container. Duas escritas concorrentes corromperam
+# o library.json em 2026-07-17. Derrube um antes de subir o outro.
 services:
   karaoke:
     build: .

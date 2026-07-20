@@ -24,6 +24,43 @@ vez; um `mix`/rádio automático do YouTube conta como música única.)
    letra entre as do LRCLIB) → onset de energia da voz.
 6. **Dificuldade** — heurística: palavras/min cantado + pico de velocidade (p90)
 
+## Qualidade do sync — o app sabe onde ele errou
+
+Alinhar letra com canto erra, e o que mais custa tempo não é o erro: é **caçar**
+o erro cantando a música inteira. Então o app mede a si mesmo e leva você direto
+ao ponto.
+
+Quatro réguas, porque cada uma é cega para o que as outras veem:
+
+| régua | o que enxerga | ponto cego |
+|---|---|---|
+| **nota do ouvido** | deslocamento como um humano sente | desastre isolado diluído na média |
+| **linhas perdidas** | a linha impossível de cantar (>0,7s fora) | linha que falta |
+| **cobertura** | letra faltando ou amontoada | tempo deslocado |
+| **duração** | linha que pisca e some, ou trava na tela | posição da linha |
+
+A **nota do ouvido** não é invenção nossa: são os parâmetros de
+[Lizé Masclef, Vaglio & Moussallam (ISMIR 2021)](https://archives.ismir.net/ismir2021/paper/000052.pdf),
+calibrados com pessoas julgando sincronia num setup de karaokê — hoje na
+`mir_eval` como `karaoke_perceptual_metric`. Dela vêm três coisas que a
+intuição erra:
+
+- o ótimo **não é zero**: a letra deve aparecer ~67ms **antes** do canto;
+- atrasar dói **muito** mais que adiantar (faixa boa: −170ms a +40ms);
+- por isso medir com valor absoluto é cego justo pro que mais incomoda.
+
+### Editor guiado — "confirmar 2 linhas", não "editar a música"
+
+O card mostra **⚠ 4 linhas** em vez de um genérico "revisar sync". Clicando, o
+editor **abre já na primeira linha errada**, com o áudio 2s antes dela, e o
+botão `⚠ linha 2/4 · próxima` circula pelas outras. As suspeitas ficam marcadas
+em âmbar (só no modo edição).
+
+```bat
+:: recalcula as réguas de toda a biblioteca (só mede, não realinha)
+.venv\Scripts\python.exe server\rescore.py [--dry]
+```
+
 ## Player
 
 - Voz e instrumental são faixas separadas tocadas em sync perfeito — slider
@@ -95,6 +132,21 @@ Whisper) baixam sozinhos no primeiro preparo e ficam em `data\models`.
 > 💡 **Prefira áudio de estúdio** — versão ao vivo tem plateia e reverb que
 > atrapalham a separação de voz e o alinhamento da letra.
 
+### Docker (servidor doméstico: Coolify, Portainer, compose)
+
+```bash
+docker compose up -d          # ou: docker build -t solta-a-voz . && docker run ...
+```
+
+A imagem é CPU-only (torch do índice `cpu`, bem menor que o padrão com CUDA) e
+os modelos baixam no primeiro preparo, ficando no volume `/app/data` — então
+rebuild não obriga a baixar tudo de novo.
+
+> ⚠️ **NUNCA rode dois servidores sobre a mesma pasta `data/`** — um no host e
+> outro no container, por exemplo. O lock de arquivo **não atravessa** a
+> fronteira host/container, e as duas escritas concorrentes corrompem o
+> `library.json`. Derrube um antes de subir o outro.
+
 ## Estrutura
 
 ```
@@ -106,6 +158,17 @@ data/library.json — biblioteca (metadata + cache de letra + status)
 data/media/       — arquivos originais ({id}.ext)
 data/stems/{id}/  — vocals.mp3, instrumental.mp3, pitch.json por música
 tools/ffmpeg/     — ffmpeg portátil (fora do git)
+```
+
+Ferramentas de qualidade (não fazem parte do app; só medem e reprocessam):
+
+```
+server/rescore.py        — recalcula as 4 réguas na biblioteca (só mede)
+server/align_v2_apply.py — reprocessa músicas com o pipeline atual
+server/refetch_lyrics.py — troca letra por outra que o ÁUDIO confirma
+server/measure_truth.py  — AAE contra LRC marcado por humano
+server/ab_sw.py          — A/B do casador (Smith-Waterman × difflib)
+server/ab_skip.py        — A/B do skip de instrumental
 ```
 
 ## Atalhos no player
@@ -120,14 +183,22 @@ tools/ffmpeg/     — ffmpeg portátil (fora do git)
 
 :: pente fino do alinhamento de uma música (ou toda a biblioteca sem id)
 .venv\Scripts\python.exe server\audit.py [id] [--web]
+
+:: recalcula as réguas de qualidade (só mede, seguro repetir)
+.venv\Scripts\python.exe server\rescore.py [--dry]
 ```
+
+> ⚠️ Scripts do `server/` mexem na biblioteca. Rode sempre com
+> `KARAOKE_NO_WORKER=1`, com o python do venv, e **faça backup do
+> `data/library.json`** antes de qualquer coisa que escreva.
 
 O `audit.py` mede, frase a frase, quanto do canto real cai dentro de cada janela
 da letra e sinaliza problemas (frase esticada, além do fim do áudio, canto sem
 frase na letra). Com `--web` cruza a letra com uma fonte externa (lyrics.ovh)
 pra apontar versos faltando.
 
-> **Requisito**: Python **3.13** (o stack de IA ainda não tem wheels pro 3.14).
+> **Requisito**: Python **3.11 a 3.13**. O 3.14 quebra (o `diffq`, dependência
+> do audio-separator, ainda não tem wheel). A imagem Docker usa 3.12.
 
 ## Uso responsável
 
