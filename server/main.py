@@ -2736,7 +2736,9 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     # que qualquer média: as que ele aprova têm ZERO, as que reprova têm ≥1.
     # Uma única linha impossível de cantar estraga a música — é literalmente a
     # reclamação dele. Média nunca vai capturar isso.
-    ruim = ((acordo is not None and acordo < 0.65)
+    dur = duracao_suspeita(sid, lines)
+    ruim = (((dur or {}).get("esmagadas") or 0) >= 1
+            or (acordo is not None and acordo < 0.65)
             or ((cob or {}).get("cobertura") is not None and cob["cobertura"] < 0.7)
             or ((percept or {}).get("nota") is not None and percept["nota"] < 0.55)
             or ((percept or {}).get("perdidas") or 0) >= 2)

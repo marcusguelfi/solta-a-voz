@@ -258,3 +258,39 @@ saindo mais barato que qualquer análise.
 ## ⏳ PENDENTE, relatado pelo Marcus e AINDA NÃO investigado
 "às vezes o 'bad boy' não aparecia no gráfico de baixo pra pontuar" — é o
 subsistema de PITCH/pontuação (pitch.json), não o alinhamento. Não olhei ainda.
+
+## ‼️ Gotcha 16 — LETRA DE OUTRA VERSÃO (Psycho Killer, achado pelo ouvido)
+
+Marcus: "de 1:23 a 1:34 dá pra ouvir cantando, mas não tem nada a ver com o que
+aparece". Não era alinhamento: **a letra era de outra gravação**.
+
+O ASR ouvia "You're stirring a conversation, you can't even finish it" e NENHUMA
+linha da nossa letra continha "conversation" — faltava um verso inteiro.
+Nossa letra casava 12/34 linhas com o áudio; o LRCLIB tinha candidatos com
+17/35 E com o verso. A nossa veio de uma versão de **313s**; a gravação tem 260s.
+Mesma classe do Whisky a Go-Go. Depois da troca: verso presente em 82,9s (=1:23),
+nota 0,424→0,526, esmagadas 2→0.
+
+### Como escolher letra: pergunte ao ÁUDIO, não ao ranking da fonte
+Critério que funcionou: entre os candidatos com duração compatível (±5s), pegar
+o que mais casa com a TRANSCRIÇÃO. Isso deveria estar no pipeline de seleção de
+letra — hoje não está. **É o próximo item de maior valor**: se a letra está
+errada, alinhador nenhum salva, e nenhuma das nossas 4 réguas acusava direito.
+
+### ⚠️ Cuidado ao medir "letra estrangeira" pelo teto
+Eu quase reportei "62% das linhas são estrangeiras". Falso: "Qu'est-ce que c'est",
+"Fa-fa-fa-fa" e os versos em FRANCÊS são reais, e o teto dá 0 porque o ASR em
+inglês não os transcreve. Teto baixo = limite do ASR OU letra errada — só o
+conjunto (verso ausente + duração incompatível) prova.
+
+### Gotcha 17 — edição por script sem conferir
+Meu `sed`/replace inseriu `"duracao": dur` no dict mas NÃO a linha que calcula
+`dur` (a âncora não bateu). Resultado: NameError em produção, alinhamento com 0
+linhas. **Sempre rodar os testes depois de edição por script** — o pytest pegou.
+
+## Estado das 3 testadas (veredito do Marcus + réguas)
+| música | ouvido dele | nota | obs |
+|---|---|---|---|
+| Epitáfio | controle, ok | 0,894 | intacto |
+| Bad Boys | "BEEEM melhor", defeito em 2:30 | 0,718 | defeito localizado e marcado |
+| Psycho Killer | verso errado em 1:23 | 0,526 | letra trocada, verso no lugar |
