@@ -783,6 +783,37 @@ def test_global_align_com_sw_mantem_o_tempo_do_canto(monkeypatch):
     assert abs(linhas[2]["t"] - 30.0) < 0.2
 
 
+def test_skip_pula_instrumental_em_vez_de_espalhar_letra(monkeypatch):
+    """v4(b): o buraco entre duas âncoras tem 30s, mas só os 6s finais têm
+    canto. Repartir no relógio joga letra dentro do instrumental (foi assim que
+    o Take Me Out cravou uma linha em 60,55s, região sem uma palavra sequer)."""
+    hop = 0.032
+    n = int(60 / hop)
+    energy = [0] * n
+    for k in range(int(50 / hop), int(56 / hop)):     # canto só de 50s a 56s
+        energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    marcos = main._repartir_no_canto("x", 20.0, 57.0, 4)
+    assert marcos is not None
+    assert all(50.0 <= t <= 56.5 for t in marcos)     # nada no instrumental
+    assert marcos == sorted(marcos)
+
+
+def test_skip_desiste_quando_a_energia_nao_ajuda(monkeypatch):
+    """Buraco quase todo cantado (ou quase todo mudo): a energia não tem o que
+    dizer ali e o reparte uniforme volta a mandar."""
+    hop = 0.032
+    n = int(60 / hop)
+    cheio = [1] * n
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": cheio})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: cheio)
+    assert main._repartir_no_canto("x", 10.0, 40.0, 4) is None
+    vazio = [0] * n
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: vazio)
+    assert main._repartir_no_canto("x", 10.0, 40.0, 4) is None
+
+
 def _energia(monkeypatch, marcos, hop=0.032, dur=2.0, total=200.0):
     n = int(total / hop)
     energy = [0] * n

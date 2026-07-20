@@ -45,7 +45,42 @@ local da letra → realinhar o resíduo. A literatura mostra que a 2ª passada
 absorve a maior parte do sinal recuperável.
 **Aceite**: ganho medido nos 7; custo de CPU aceitável (só nas regiões fracas).
 
-## Ordem de execução
+---
+
+# ESTADO DA EXECUÇÃO (2026-07-19)
+
+- **(c) ✅ feito** — `alignment_quality()`. Resultado contrariou a hipótese: as
+  linhas curtas INFLAVAM a nota do Samurai (0,411 → 0,337). A marcação dele é
+  legítima.
+- **(a) ✅ feito** — `local_align_words()` (Smith-Waterman). Âncoras sobem em 6
+  de 7. Ganho em ANCORAGEM, não comprovado em tempo final.
+- **(b) ⚠️ feito, não comprovado** — `_repartir_no_canto()`. Empate em tudo que
+  dá pra medir sem circularidade. Mantido atrás de `KARAOKE_ALIGN_SKIP`.
+- **(d) e (e) — NÃO COMEÇAR ANTES DE LER ISTO** ⬇️
+
+## ‼️ A régua mudou: leia antes de continuar
+
+`server/measure_truth.py` (novo) mede contra **LRC marcado por humano** — a
+única régua não-circular que temos. Ela revelou que `onset_error_median` estava
+nos elogiando: Take Me Out marcava 178ms e está **695ms atrasado**; a biblioteca
+tem AAE real de 452ms, não os "30-40ms" que a gente reportava.
+
+Isso reordena o plano. **(d) e (e) são caras e miram a taxa de acerto de palavra
+— mas o erro que a verdade humana mostra é VIÉS SISTEMÁTICO de ~700ms**, que
+transcrição melhor não conserta. Fazer (d)/(e) agora é otimizar a coisa errada.
+
+### Ordem nova, recomendada
+
+1. **Verdade pra biblioteca inteira**: baixar LRC sincronizado do LRCLIB SÓ COMO
+   VERDADE (nunca como trilho — contamina), com a guarda de versão de
+   `measure_truth.py`. Hoje só 2 de 123 músicas são verificáveis. Sem isso,
+   qualquer decisão daqui pra frente continua sendo tomada no escuro.
+2. **Atacar o viés sistemático** com a régua nova na mão. É o maior erro medido
+   e o mais barato de corrigir (é um escalar por música).
+3. Só então (d) prompt-biasing e (e) duas passadas — e com as DUAS transcrições,
+   conforme a armadilha já descrita abaixo.
+
+## Ordem de execução (original, mantida como registro)
 c (barato, corrige métrica e UI) → a (troca o casador) → b (skip) →
 d (com as duas transcrições) → e (se ainda sobrar buraco).
 Cada uma com: teste unitário + medição nos 7 casos + controle intacto.

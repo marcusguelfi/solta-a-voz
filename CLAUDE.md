@@ -704,6 +704,74 @@ vários deslocamentos e a energia escolhe; empate ou piora = não mexe. A régua
 **veto, nunca alvo de busca** — se virar alvo, o número que a gente reporta
 deixa de ser avaliação independente.
 
+### ALIGN v4 (b) ⚠️ — SKIP do instrumental: implementado, NÃO comprovado
+
+`_repartir_no_canto()` reparte as palavras de um buraco proporcionalmente ao
+tempo em que há CANTO, não ao relógio (é o "skip state" dos alinhadores por
+HMM: consumir áudio sem consumir texto). Sem isso, um instrumental de 30s dentro
+do buraco recebe sua fatia de letra como se alguém estivesse cantando lá.
+
+**Medição honesta: não provou nada.** Concordância (a régua independente da
+energia): empate nos 7. Verdade humana: sem efeito. `em_silencio` melhorou em 3
+de 7 e nunca piorou, mas essa métrica é circular (o skip usa energia pra
+posicionar). O caso que motivou a feature, Take Me Out, não mudou.
+
+Ficou no código porque é barato, tem teste, está atrás de `KARAOKE_ALIGN_SKIP=0`
+e corrige um defeito VISÍVEL que régua nenhuma nossa enxerga (letra destacada
+durante instrumental). Mas **não conte como ganho** — se atrapalhar, desliga.
+
+Cicatriz dentro dela: a primeira guarda exigia ≥15% do buraco cantado e por isso
+RECUSAVA os buracos longos (39s no Samurai, 40s no Whisky, 33s no Take Me Out)
+— buraco longo é quase todo instrumental por definição, essa é a informação, não
+o ruído. Guarda certa é tempo cantado ABSOLUTO.
+
+## ‼️‼️ A DESCOBERTA QUE MUDA A RÉGUA (2026-07-19, ALIGN v4)
+
+**As duas réguas que a gente usava vinham nos elogiando.** `measure_truth.py`
+compara nosso alinhamento com o **LRC marcado por HUMANO** (`pristineSynced`,
+do LRCLIB) — não passa pela nossa transcrição nem pela nossa energia. É o AAE
+do MIREX (SOTA <200ms). O que ela mostrou:
+
+| música | onset_error_median dizia | verdade humana diz |
+|---|---|---|
+| Take Me Out | 178ms | **695ms atrasado** |
+| Vamos Fugir | ~39ms | **210ms** (viés +170ms) |
+
+**Por que a régua de energia não via**: ela mede a distância até o onset MAIS
+PRÓXIMO. Um alinhamento inteiro deslocado ~700ms continua caindo perto de
+*algum* onset — deslocamento sistemático é invisível pra ela por construção.
+Some-se a isso que ela enxerga só uma fração das linhas (4 de 33 no Take Me
+Out) e o resultado é uma régua otimista.
+
+**Estado real medido**: AAE mediano 452ms, 50% dentro de 300ms — longe dos
+"30-40ms" que a métrica antiga reportava. Não houve regressão: o número sempre
+foi esse; a régua é que era curta.
+
+**Cobertura do novo ruler: só 2 de 123 músicas.** `pristineSynced` só existe
+quando a letra veio de fonte JÁ sincronizada; o resto veio de texto puro
+(letras.mus.br). ➡️ **Próximo passo de maior valor do projeto**: baixar LRC
+sincronizado do LRCLIB pra biblioteca inteira SÓ COMO VERDADE (não como trilho),
+com a guarda de versão, e aí sim ter um benchmark de verdade — é a fase 1 do
+ALIGN_V3_PLAN (Jamendo) só que com a biblioteca do Marcus, de graça.
+
+**Guarda obrigatória**: LRC do LRCLIB casa por TÍTULO/ARTISTA e MUITAS VEZES é
+de outra gravação. O Whisky a Go-Go tem LRC que acaba em 153s numa música de
+249s, deslocado 4,8s — usar como verdade dava AAE de 75 SEGUNDOS e culparia
+nosso alinhamento por erro da fonte. `measure_truth.py` descarta LRC que não
+cobre ≥75% da duração. **Verdade fundamental também se valida antes de valer.**
+
+### O que isso significa pro veredito da (a) e da (b)
+
+Contra a verdade humana, `global_align_lines` sozinho fica em 1595–1715ms
+(Take Me Out) e 950–960ms (Vamos Fugir) — MUITO pior que o que está na
+biblioteca (695/210ms), porque o que ship é o pipeline COMPLETO (escolha de
+motor + reconcile + âncora + clamp), não esse intermediário. Nesse recorte o SW
+ficou 120ms/10ms atrás do difflib, dentro do ruído de amostras de 10 e 5 linhas,
+com um viés de ~1s dominando os dois. **Tradução honesta: a (a) melhora a
+ANCORAGEM (fato medido: mais palavra com tempo vindo do canto real, em 6 de 7) e
+não está provado que melhora o TEMPO FINAL.** Foi mantida por isso + por matar
+uma classe de âncora falsa demonstrada; não por ter vencido.
+
 ## ➡️ Continua aberto no `ALIGN_V3_PLAN.md`: fases 1 e 2
 
 Escrito 2026-07-19 a pedido do Marcus ("concordância perto de 1,00"), com

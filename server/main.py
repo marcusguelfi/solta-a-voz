@@ -2025,6 +2025,18 @@ def global_align_lines(sid: str, line_texts: list[str],
         depois = ini[j] if j < len(L) else None
         n = j - k
         if antes is not None and depois is not None:
+            # ALIGN v4 (b): SKIP — consumir ÁUDIO sem consumir TEXTO. Espalhar as
+            # palavras por igual no buraco larga letra no meio de instrumental
+            # (Take Me Out: linha jogada em 60,55s, região onde não há uma única
+            # palavra transcrita). Distribuir sobre o tempo CANTADO pula o
+            # instrumental de graça.
+            marcos = _repartir_no_canto(sid, antes, depois, n)
+            if marcos:
+                for m, t in enumerate(marcos):
+                    ini[k + m] = round(t, 2)
+                    fim[k + m] = round(t + 0.3, 2)
+                k = j
+                continue
             passo = max((depois - antes) / (n + 1), 0.05)
             for m in range(n):
                 ini[k + m] = round(antes + passo * (m + 1), 2)
@@ -2097,6 +2109,49 @@ def global_align_lines(sid: str, line_texts: list[str],
     logging.info("alinhamento global em %s: %.0f%% das palavras ancoradas",
                  sid, 100 * cobertura)
     return lines
+
+
+def _repartir_no_canto(sid: str, ini: float, fim: float, n: int) -> list[float] | None:
+    """ALIGN v4 (b) — reparte n palavras entre `ini` e `fim` proporcionalmente ao
+    tempo em que há CANTO, não ao relógio.
+
+    É o "skip state" dos alinhadores de letra por HMM: o modelo pode consumir
+    áudio sem consumir texto. Sem isso, um instrumental de 30s no meio do buraco
+    recebe sua fatia de letra como se alguém estivesse cantando lá.
+
+    Devolve None quando não dá pra decidir (sem energia, ou o buraco é curto/
+    silencioso demais) — aí quem chama volta pro reparte uniforme.
+    """
+    if n <= 0 or fim - ini < 1.5:
+        return None
+    if os.environ.get("KARAOKE_ALIGN_SKIP", "1") == "0":
+        return None
+    pitch = load_pitch(sid)
+    energy = sung_energy(sid, pitch)
+    if not energy:
+        return None
+    hop = pitch["hop"]
+    a, b = int(ini / hop), min(int(fim / hop), len(energy))
+    if b - a < 2:
+        return None
+    cantado = [k for k in range(a, b) if energy[k]]
+    # ‼️ CICATRIZ: a primeira versão exigia fração cantada ≥15% e com isso
+    # RECUSAVA justamente os buracos que motivaram a feature (39s no Samurai,
+    # 40s no Whisky, 33s no Take Me Out) — buraco longo é quase todo
+    # instrumental por definição, essa é a informação, não o ruído. O que
+    # importa é ter tempo cantado ABSOLUTO suficiente pra abrigar as palavras.
+    if len(cantado) * hop < max(1.0, 0.25 * n):
+        return None
+    if len(cantado) / (b - a) > 0.9:      # quase tudo é canto: uniforme já acerta
+        return None
+    marcos = []
+    for m in range(n):
+        pos = int(len(cantado) * (m + 0.5) / n)
+        marcos.append(cantado[min(pos, len(cantado) - 1)] * hop)
+    for m in range(1, n):                      # monotonicidade
+        if marcos[m] <= marcos[m - 1]:
+            marcos[m] = marcos[m - 1] + 0.05
+    return marcos
 
 
 def _vies_vs_onsets(sid: str, lines: list[dict]) -> float | None:
