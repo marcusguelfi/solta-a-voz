@@ -713,6 +713,20 @@ body.editing .lyr-line:hover {
   background: color-mix(in srgb, var(--magenta) 10%, transparent);
 }
 
+/* Linha reprovada pela régua do OUVIDO (>0,7s fora do canto): impossível de
+   cantar. Marcada só no modo edição — no player normal ela não polui a tela. */
+.lyr-line.lyr-suspeita {
+  border-left: 3px solid #f5a524;
+  padding-left: 8px;
+  background: color-mix(in srgb, #f5a524 8%, transparent);
+  border-radius: 6px;
+}
+.btn-mini.ruins {
+  border-color: #f5a524;
+  color: #f5a524;
+  font-weight: 600;
+}
+
 /* ---------- aviso de sync não verificado ---------- */
 .pill.warn { background: #4a3413; color: var(--amber); cursor: help; }
 .pill.manual { background: #14351f; color: var(--easy); }

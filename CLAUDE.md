@@ -772,6 +772,35 @@ ANCORAGEM (fato medido: mais palavra com tempo vindo do canto real, em 6 de 7) e
 não está provado que melhora o TEMPO FINAL.** Foi mantida por isso + por matar
 uma classe de âncora falsa demonstrada; não por ter vencido.
 
+### ✅ EDITOR GUIADO — o app leva o Marcus às linhas erradas (2026-07-20)
+
+Pedido literal dele: *"quero passar meu tempo cantando e não editando na mão"*.
+Antes ele tinha que CANTAR a música inteira pra descobrir onde estava torto.
+
+`perceptual_score` devolve `perdidas` (linha >0,7s do canto) e `onde` (os
+timestamps). O front usa isso:
+
+- **Card**: o aviso genérico "⚠ revisar sync" virou **"⚠ 4 linhas"**. Número é
+  acionável; susto não é.
+- **Editor**: abre JÁ na primeira linha errada, com o áudio 2s antes dela.
+- **Botão `⚠ linha 2/4 · próxima`**: circula pelas ruins.
+- **Linha suspeita** marcada em âmbar (só no modo edição, pra não poluir o
+  player).
+
+`server/rescore.py` — recalcula e grava as três réguas em toda a biblioteca sem
+realinhar nada (não roda modelo, seguro rodar quantas vezes quiser). Rodado:
+**122 músicas atualizadas, 80 marcadas, 262 linhas impossíveis de cantar**.
+
+**Verificado no navegador de verdade** (Psycho Killer): card mostra "⚠ 4 linhas";
+editor abre em `Fa-fa-fa...`; as 4 linhas ficam marcadas; o botão circula
+1/4→2/4→3/4→4/4→1/4; o áudio pula pra 42,1 / 75,4 / 90,6 / 129,2s — exatamente
+2s antes de cada uma. A linha 2/4 é *"I passed out hours ago"*, **a mesma que
+aparecia na screenshot que o Marcus mandou reclamando**.
+
+⚠️ **Gotcha de teste**: essa música toca pelo motor `stems`, então
+`audio.currentTime` fica em 0 e parece que o seek falhou. Use `getTime()` /
+`engine.startOffset` pra verificar posição — não o elemento `<audio>`.
+
 ## ➡️ Continua aberto no `ALIGN_V3_PLAN.md`: fases 1 e 2
 
 Escrito 2026-07-19 a pedido do Marcus ("concordância perto de 1,00"), com

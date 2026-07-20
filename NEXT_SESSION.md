@@ -143,3 +143,32 @@ o editor, não avisar.
 ➡️ **Isso torna o item 4 do plano o de maior retorno agora**: o editor abrindo
 em `onde` transforma "editar a música" em "confirmar 2 linhas". Os timestamps
 já existem, é só a UI.
+
+## ✅ FEITO 2026-07-20 (fim da sessão): editor guiado
+
+`server/rescore.py` grava as 3 réguas em toda a biblioteca sem realinhar (não
+roda modelo — seguro). Rodado: 122 atualizadas, 80 marcadas, 262 linhas ruins.
+
+Front: card mostra "⚠ 4 linhas" (não mais "revisar sync"); editor abre NA
+primeira linha errada com áudio 2s antes; botão `⚠ linha 2/4 · próxima` circula;
+linha suspeita em âmbar só no modo edição. Verificado no navegador.
+
+### Gotcha 10 — probe errado dá falso negativo no teste
+Psycho Killer toca pelo motor `stems`: `audio.currentTime` fica 0 e o seek
+PARECE quebrado. Use `getTime()` / `engine.startOffset`. Quase reportei bug
+inexistente.
+
+### Gotcha 11 — rotas do app
+O app NÃO está em `/` nem em `/app`. `/` é a landing; o app é **`/app.html`**
+(StaticFiles com html=True montado na raiz). Cards abrem por `.card-play`, não
+por clique no card.
+
+### Antes de subir servidor: CHECAR A PORTA
+Regra do `data/` (incidente 2026-07-17). `curl -s -m 4 http://127.0.0.1:8777/`
+antes de `preview_start`, e `preview_stop` ao terminar. `.claude/launch.json`
+já existe com o alvo `karaoke`.
+
+## ➡️ Próximo (a ordem não mudou)
+1. Retarget −67ms (`ALVO_PERCEPTUAL`) — validar contra LRC humano + ouvido.
+2. Reprocessar as 80 marcadas, Epitáfio de CONTROLE.
+3. (d)/(e) por FONEMA.

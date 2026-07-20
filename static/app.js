@@ -800,14 +800,16 @@ function metaHTML(song) {
     statusPill = `<span class="pill prepare">preparar karaokê</span>`;
   }
   // sync "fino" = passou pelo whisper-align ou foi editado à mão; o resto
-  // (LRC bruto/offset global) merece um aviso — e o editor resolve
+  // (LRC bruto/offset global) merece um aviso — e o editor resolve.
+  // Quando sabemos QUANTAS linhas estão fora, o aviso diz o número: "⚠ 2 linhas"
+  // é acionável, "⚠ revisar sync" é só um susto.
   const unverified = song.status === "ready" && song.stems && hasSync &&
     !["whisper", "mms", "hibrido", "global", "auto", "manual"].includes(song.lyrics?.alignMethod);
   return `
     <span class="pill">${fmtTime(song.duration)}</span>
     ${diff ? `<span class="pill diff ${diff.toLowerCase()}">${diff}</span>` : ""}
     ${hasSync ? `<span class="pill${song.lyrics?.alignMethod === "manual" ? " manual" : ""}">${song.lyrics?.alignMethod === "manual" ? "✍ letra sua" : "letra sync"}</span>` : ""}
-    ${unverified ? `<span class="pill warn" title="letra sem sync fino — abra a música e use ☰ → editar tempos">⚠ revisar sync</span>` : ""}
+    ${unverified ? `<span class="pill warn" title="${nRuins(song) ? `${nRuins(song)} linha(s) a mais de 0,7s do canto — o editor abre direto nelas` : "letra sem sync fino — abra a música e use ☰ → editar tempos"}">⚠ ${nRuins(song) ? `${nRuins(song)} linha${nRuins(song) > 1 ? "s" : ""}` : "revisar sync"}</span>` : ""}
     ${statusPill}`;
 }
 
@@ -1818,6 +1820,48 @@ let editMode = false;
 let editSel = -1;
 const editShift = () => autoOffset - manualOffset; // linha + shift = áudio
 
+// Linhas que a régua do ouvido reprovou (>0,7s do canto = impossível de cantar).
+// O backend já grava os timestamps em lyrics.perceptual.onde — aqui só casamos
+// com as linhas na tela. É isso que transforma "editar a música" em "confirmar
+// 2 linhas": o Marcus não precisa mais caçar o erro cantando.
+const nRuins = (song) => song?.lyrics?.perceptual?.perdidas || 0;
+
+function linhasRuins(lyr) {
+  const onde = lyr?.perceptual?.onde;
+  if (!onde?.length || !lyrLines.length) return [];
+  return onde.map((t) => {
+    let melhor = -1, dist = 0.35;   // casa por tempo, tolerância curta
+    lyrLines.forEach((l, i) => {
+      const d = Math.abs(l.t - t);
+      if (d < dist) { dist = d; melhor = i; }
+    });
+    return melhor;
+  }).filter((i) => i >= 0);
+}
+
+let ruins = [];
+
+function irProximaRuim() {
+  if (!ruins.length) return;
+  const atual = ruins.indexOf(editSel);
+  const alvo = ruins[(atual + 1) % ruins.length];
+  selectEditLine(alvo);
+  const t = lyrLines[alvo]?.t;
+  if (t != null) engineSeek(Math.max(0, t + editShift() - 2));  // 2s de contexto antes
+  atualizaBotaoRuins();
+}
+
+function atualizaBotaoRuins() {
+  const btn = $("edit-ruins");
+  if (!btn) return;
+  btn.hidden = !ruins.length;
+  if (!ruins.length) return;
+  const pos = ruins.indexOf(editSel);
+  btn.textContent = pos >= 0
+    ? `⚠ linha ${pos + 1}/${ruins.length} · próxima`
+    : `⚠ ${ruins.length} ${ruins.length === 1 ? "linha suspeita" : "linhas suspeitas"}`;
+}
+
 function enterEdit() {
   if (!current) return;
   if (mp.active) { toast("finalize o dueto/duelo antes de editar 😉", true); return; }
@@ -1828,12 +1872,18 @@ function enterEdit() {
   $("lyrics-scroller").hidden = false;
   $("lyrics-fallback").hidden = true;
   document.body.classList.add("editing");
+  ruins = linhasRuins(current.lyrics);
+  ruins.forEach((i) => lyrLines[i]?.el.classList.add("lyr-suspeita"));
   selectEditLine(-1);
+  atualizaBotaoRuins();
+  if (ruins.length) irProximaRuim();     // já abre NA primeira linha errada
 }
 
 function exitEdit(discard) {
   editMode = false;
   editSel = -1;
+  ruins = [];
+  lyrLines.forEach((l) => l.el.classList.remove("lyr-suspeita"));
   $("edit-bar").hidden = true;
   document.body.classList.remove("editing");
   if (discard && current) renderLyrics(current.lyrics); // volta ao salvo
@@ -1850,6 +1900,7 @@ function selectEditLine(i) {
     $("edit-text").value = lyrLines[i].text;
     refreshEditTimes();
   }
+  atualizaBotaoRuins();   // clicar numa linha à mão também atualiza o contador
 }
 
 const fmtEdit = (s) => {
@@ -2007,8 +2058,11 @@ $("edit-restore").onclick = async () => {
 };
 $("sync-warn").onclick = () => {
   enterEdit();
-  toast("modo edição: dê play e vá marcando o início das linhas com Enter ⏱");
+  toast(ruins.length
+    ? `${ruins.length} ${ruins.length === 1 ? "linha suspeita" : "linhas suspeitas"} — já abri na primeira. Enter marca o início ⏱`
+    : "modo edição: dê play e vá marcando o início das linhas com Enter ⏱");
 };
+$("edit-ruins").onclick = irProximaRuim;
 
 $("lyrics-scroller").addEventListener("click", (e) => {
   if (!editMode) return;
