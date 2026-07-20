@@ -172,3 +172,34 @@ já existe com o alvo `karaoke`.
 1. Retarget −67ms (`ALVO_PERCEPTUAL`) — validar contra LRC humano + ouvido.
 2. Reprocessar as 80 marcadas, Epitáfio de CONTROLE.
 3. (d)/(e) por FONEMA.
+
+## ✅ FEITO 2026-07-20 (cont.): régua monotônica — o ponto cego fechado
+
+`casar_linhas_onsets()`: casa linha↔onset em SEQUÊNCIA (DP), no lugar de "onset
+mais próximo". Conserta dois defeitos de uma vez:
+1. **atribuição** — não precisa mais exigir pausa de 0,8s antes da linha, então
+   cobre muito mais (Psycho Killer 24→32 linhas, September 10→19, Stayin' 5→9);
+2. **cegueira a deslocamento uniforme** — Take Me Out: verdade humana diz +695ms
+   atrasado, régua velha dizia 178ms (cega), régua NOVA mede **+530ms**.
+
+O erro absoluto SOBE (178→1704ms) e isso é honestidade, não regressão: a linha
+deixa de "escapar" pro onset conveniente ao lado.
+
+Separação do veredito do Marcus preservada e mais nítida:
+Epitáfio 0,894 e I Have a Dream 0,792 (ele aprova) contra Psycho Killer 0,680,
+September 0,442, Stayin' Alive 0,217 (ele reprova).
+
+### Gotcha 12 — custo de pulo alto demais ESCONDE o pior
+Com `pulo=0.9`, pular os dois lados (1,8) saía mais barato que casar uma linha
+2s fora — e as PIORES linhas sumiam da conta, o oposto do que a régua serve.
+`pulo=1.8` (> max_dist/2) faz qualquer casamento dentro de 3s ser preferido.
+Regra geral: em matching com skip, confira se o skip não está comendo o sinal.
+
+### Bad Boys / Final Countdown continuam "sem medição" — e ISSO é o diagnóstico
+Só 2 das 38 linhas do Bad Boys têm algum onset a menos de 3s. Não é a régua
+falhando: é que a letra não está onde há canto. Quem os reprova é a
+`display_coverage` (0,298 e 0,030). As réguas se cobrem.
+
+Após `rescore.py` com a régua nova: **99 de 123 marcadas, 502 linhas perdidas**
+(antes 80 e 262) — os números pioraram porque a régua enxerga mais, não porque
+o alinhamento piorou.

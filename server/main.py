@@ -2262,24 +2262,93 @@ def reset_to_pristine(sid: str) -> bool:
     return bool(align_best_candidate(sid))
 
 
-def linhas_verificaveis(sid: str, lines: list[dict],
-                        janela: float = 3.0) -> tuple[list[int], list[float]]:
-    """Índices das linhas que a testemunha independente CONSEGUE julgar (começam
-    frase, com silêncio antes, e têm onset plausível perto) + os onsets.
+def casar_linhas_onsets(lines: list[dict], onsets: list[float],
+                        max_dist: float = 3.0,
+                        pulo: float = 1.8) -> list[tuple[int, float]]:
+    """Casa linha↔onset em SEQUÊNCIA (monotônico), não por vizinho mais próximo.
 
-    Vale saber quantas são: no Take Me Out só 4 das 33 linhas são verificáveis,
-    então qualquer veredito ali é evidência fraca — a régua está quase cega."""
+    ‼️ Conserta os DOIS defeitos da régua antiga de uma vez:
+
+    1. **Atribuição**: "onset mais próximo" não sabe QUAL onset é de qual linha,
+       por isso a gente só aceitava linha com pausa de 0,8s antes — e em música
+       de canto contínuo sobravam 3 ou 4 linhas verificáveis (Bad Boys, Final
+       Countdown ficavam sem nota nenhuma). Casando em ordem, a posição na
+       sequência resolve a ambiguidade e quase toda linha entra.
+    2. **Cegueira a deslocamento uniforme**: com vizinho mais próximo, uma
+       música inteira 700ms atrasada continua caindo perto de ALGUM onset e a
+       régua dizia 178ms (caso Take Me Out). O casamento em ordem não deixa a
+       linha "escorregar" pro onset seguinte de graça — o deslocamento aparece.
+
+    Nem toda linha começa frase e nem todo onset é começo de linha, então os
+    dois lados podem PULAR (custo `pulo`). DP simples; letras têm dezenas de
+    linhas, não milhares.
+
+    ‼️ `pulo` calibrado de propósito acima de `max_dist / 2`: com valor baixo,
+    pular os dois lados (2×pulo) sai mais barato que casar uma linha muito fora,
+    e as PIORES linhas sumiam da conta em vez de aparecerem como erro — o
+    oposto do que a régua existe pra fazer. Com 1,8 qualquer casamento dentro
+    dos 3s é preferido a descartar o par.
+    """
+    n, m = len(lines), len(onsets)
+    if not n or not m:
+        return []
+    INF = float("inf")
+    # custo[i][j] = melhor custo casando lines[i:] com onsets[j:]
+    custo = [[INF] * (m + 1) for _ in range(n + 1)]
+    escolha = [[None] * (m + 1) for _ in range(n + 1)]
+    custo[n][m] = 0.0
+    for j in range(m - 1, -1, -1):
+        custo[n][j] = custo[n][j + 1] + pulo
+        escolha[n][j] = "o"
+    for i in range(n - 1, -1, -1):
+        custo[i][m] = custo[i + 1][m] + pulo
+        escolha[i][m] = "l"
+        for j in range(m - 1, -1, -1):
+            d = abs(lines[i]["t"] - onsets[j])
+            melhor, qual = custo[i + 1][j] + pulo, "l"      # pula a linha
+            v = custo[i][j + 1] + pulo                      # pula o onset
+            if v < melhor:
+                melhor, qual = v, "o"
+            if d <= max_dist:
+                v = custo[i + 1][j + 1] + d                 # casa os dois
+                if v < melhor:
+                    melhor, qual = v, "c"
+            custo[i][j], escolha[i][j] = melhor, qual
+    pares, i, j = [], 0, 0
+    while i < n and j < m:
+        q = escolha[i][j]
+        if q == "c":
+            pares.append((i, onsets[j]))
+            i, j = i + 1, j + 1
+        elif q == "l":
+            i += 1
+        else:
+            j += 1
+    return pares
+
+
+def pares_verificaveis(sid: str, lines: list[dict]) -> list[tuple[int, float]]:
+    """Pares (índice da linha, onset REAL dela) — a base de todas as réguas.
+
+    Antes era "onset mais próximo com pausa de 0,8s antes", o que descartava
+    música de canto contínuo (Bad Boys e Final Countdown ficavam SEM NOTA) e não
+    enxergava deslocamento uniforme. Agora é casamento em SEQUÊNCIA, que resolve
+    os dois — ver `casar_linhas_onsets`."""
     onsets = _onsets_de_frase(sid)
     if not onsets or not lines:
-        return [], []
-    idx = []
-    for i, ln in enumerate(lines):
-        fim_ant = (lines[i - 1].get("end") or lines[i - 1]["t"]) if i else -9
-        if i and (ln["t"] - fim_ant) <= 0.8:
-            continue  # canto contínuo: não dá pra verificar
-        if min(abs(ln["t"] - o) for o in onsets) <= janela:
-            idx.append(i)
-    return idx, onsets
+        return []
+    return casar_linhas_onsets(lines, onsets)
+
+
+def linhas_verificaveis(sid: str, lines: list[dict],
+                        janela: float = 3.0) -> tuple[list[int], list[float]]:
+    """Compatibilidade: só os índices + os onsets casados, na ordem.
+
+    Vale sempre olhar QUANTOS são: no Bad Boys apenas 2 das 38 linhas casam com
+    algum onset — e isso já é o diagnóstico (a letra não está onde há canto),
+    mas também quer dizer que a nota dele repousa em 2 amostras."""
+    pares = pares_verificaveis(sid, lines)
+    return [i for i, _o in pares], [o for _i, o in pares]
 
 
 def onset_error_median(sid: str, lines: list[dict]) -> float | None:
@@ -2288,10 +2357,10 @@ def onset_error_median(sid: str, lines: list[dict]) -> float | None:
     é a única que enxerga viés dos timestamps do ASR."""
     import statistics
 
-    idx, onsets = linhas_verificaveis(sid, lines)
-    if len(idx) < 4:
+    pares = pares_verificaveis(sid, lines)
+    if len(pares) < 4:
         return None
-    errs = [min(abs(lines[i]["t"] - o) for o in onsets) for i in idx]
+    errs = [abs(lines[i]["t"] - o) for i, o in pares]
     return round(statistics.median(errs), 3)
 
 
@@ -2333,13 +2402,12 @@ def perceptual_score(sid: str, lines: list[dict]) -> dict | None:
     fora do lugar é ruim de cantar, e média nenhuma mostra isso."""
     import statistics
 
-    idx, onsets = linhas_verificaveis(sid, lines)
-    if len(idx) < 4:
+    pares = pares_verificaveis(sid, lines)
+    if len(pares) < 4:
         return None
     notas, atrasadas, perdidas, onde = [], 0, 0, []
-    for i in idx:
+    for i, perto in pares:
         t = lines[i]["t"]
-        perto = min(onsets, key=lambda o: abs(t - o))
         off = t - perto
         notas.append(perceptual_line_score(off))
         if off > 0.04:                     # fora da faixa boa, pro lado que dói
@@ -2405,12 +2473,12 @@ def _erro_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
     nas MESMAS amostras."""
     import statistics
 
-    idx, onsets = linhas_verificaveis(sid, base)
-    if len(idx) < 3 or len(cand) != len(base):
-        return None, None, len(idx)
-    a = statistics.median([min(abs(base[i]["t"] - o) for o in onsets) for i in idx])
-    b = statistics.median([min(abs(cand[i]["t"] - o) for o in onsets) for i in idx])
-    return round(a, 3), round(b, 3), len(idx)
+    pares = pares_verificaveis(sid, base)
+    if len(pares) < 3 or len(cand) != len(base):
+        return None, None, len(pares)
+    a = statistics.median([abs(base[i]["t"] - o) for i, o in pares])
+    b = statistics.median([abs(cand[i]["t"] - o) for i, o in pares])
+    return round(a, 3), round(b, 3), len(pares)
 
 
 def _perceptual_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
@@ -2425,19 +2493,15 @@ def _perceptual_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
     """
     import statistics
 
-    idx, onsets = linhas_verificaveis(sid, base)
-    if len(idx) < 3 or len(cand) != len(base):
-        return None, None, len(idx)
+    pares = pares_verificaveis(sid, base)
+    if len(pares) < 3 or len(cand) != len(base):
+        return None, None, len(pares)
 
     def nota(lns):
-        vals = []
-        for i in idx:
-            t = lns[i]["t"]
-            perto = min(onsets, key=lambda o: abs(t - o))
-            vals.append(perceptual_line_score(t - perto))
-        return round(statistics.mean(vals), 4)
+        return round(statistics.mean(
+            [perceptual_line_score(lns[i]["t"] - o) for i, o in pares]), 4)
 
-    return nota(base), nota(cand), len(idx)
+    return nota(base), nota(cand), len(pares)
 
 
 def _melhor_alinhamento(sid: str, texts: list[str], folga: float = 0.06):
