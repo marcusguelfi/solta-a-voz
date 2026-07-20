@@ -866,6 +866,42 @@ def test_escolha_prefere_adiantado_a_atrasado(monkeypatch):
     assert na > nb * 1.5                 # o ouvido não empata: atrasado é MUITO pior
 
 
+def test_duracao_suspeita_pega_o_defeito_do_bad_boys(monkeypatch):
+    """‼️ CICATRIZ achada de OUVIDO pelo Marcus (Bad Boys 2:30): linha de 5
+    palavras durando 0,40s (pisca e some) seguida de outra travada 6s na tela.
+    As três réguas eram cegas: perceptual só olha o INÍCIO, coverage só olha o
+    TOTAL (dava 0,903), agreement compara texto. Duração precisa da sua."""
+    hop = 0.032
+    n = int(60 / hop)
+    energy = [0] * n
+    for k in range(int(10 / hop), int(14 / hop)):     # canto só de 10s a 14s
+        energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    lines = [
+        {"t": 10.0, "end": 14.0, "text": "linha normal cantada aqui certinho"},
+        {"t": 20.0, "end": 20.4, "text": "born of a mother with"},   # esmagada
+        {"t": 30.0, "end": 36.5, "text": "reflection comes and reflection goes"},
+    ]
+    d = main.duracao_suspeita("x", lines)
+    assert d["esmagadas"] == 1 and d["onde_esmagada"] == [20.0]
+    assert d["arrastadas"] == 1 and d["onde_arrastada"] == [30.0]
+
+
+def test_duracao_nao_reprova_nota_sustentada(monkeypatch):
+    """Linha longa NÃO é defeito se tem gente cantando nela — I Have a Dream
+    (que o Marcus aprova) tinha 7 dessas e o detector cru reprovava todas."""
+    hop = 0.032
+    n = int(60 / hop)
+    energy = [0] * n
+    for k in range(int(10 / hop), int(18 / hop)):     # canto contínuo 10-18s
+        energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    sustentada = [{"t": 10.0, "end": 18.0, "text": "aaaah"}]
+    assert main.duracao_suspeita("x", sustentada)["arrastadas"] == 0
+
+
 def test_perdidas_separa_o_que_a_media_dilui(monkeypatch):
     """‼️ CICATRIZ Psycho Killer: 20 linhas ótimas + 4 impossíveis de cantar
     (>0,7s fora). A média deu 0,690 e o selo APROVOU a música que o Marcus

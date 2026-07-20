@@ -26,9 +26,10 @@ except Exception:
 import main  # noqa: E402
 
 
-def selo(acordo, cob, percept) -> bool:
+def selo(acordo, cob, percept, dur=None) -> bool:
     """Mesma regra do pipeline — cada régua cobre o ponto cego das outras."""
     return bool((acordo is not None and acordo < 0.65)
+                or ((dur or {}).get("esmagadas") or 0) >= 1
                 or ((cob or {}).get("cobertura") is not None and cob["cobertura"] < 0.7)
                 or ((percept or {}).get("nota") is not None and percept["nota"] < 0.55)
                 or ((percept or {}).get("perdidas") or 0) >= 2)
@@ -47,6 +48,7 @@ def rodar(dry: bool) -> None:
         try:
             cob = main.display_coverage(sid, lines)
             percept = main.perceptual_score(sid, lines)
+            dur = main.duracao_suspeita(sid, lines)
         except Exception as ex:
             print(f"!! {sid}: {type(ex).__name__}: {str(ex)[:60]}")
             continue
@@ -56,12 +58,13 @@ def rodar(dry: bool) -> None:
         acordo = (lyr.get("quality") or {}).get("acordo")
         if acordo is None:
             acordo = lyr.get("agreement")
-        ruim = selo(acordo, cob, percept)
+        ruim = selo(acordo, cob, percept, dur)
         base = (lyr.get("alignMethod") or "").replace("-suspeito", "") or "desconhecido"
         method = base + ("-suspeito" if ruim else "")
         perdidas_total += (percept or {}).get("perdidas") or 0
         marcadas += 1 if ruim else 0
-        novo = {**lyr, "coverage": cob, "perceptual": percept, "alignMethod": method}
+        novo = {**lyr, "coverage": cob, "perceptual": percept, "duracao": dur,
+                "alignMethod": method}
         if novo != lyr:
             mudou += 1
             if not dry:

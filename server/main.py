@@ -2462,6 +2462,45 @@ def display_coverage(sid: str, lines: list[dict]) -> dict | None:
             "sobra": round(sobra / tela, 3)}              # fração da tela sem canto
 
 
+def duracao_suspeita(sid: str, lines: list[dict]) -> dict | None:
+    """Linhas com DURAÇÃO implausível — o terceiro ponto cego, achado de ouvido.
+
+    ‼️ CICATRIZ (Bad Boys 2:30, achado pelo Marcus cantando): a linha 56 durava
+    0,40s ("Born of a mother with…", 5 palavras — impossível de ler) e a 57
+    ficava 6,13s travada na tela. Nenhuma régua nossa via:
+      • `perceptual_score` só olha o INÍCIO da linha;
+      • `display_coverage` só olha o TOTAL do canto coberto (dava 0,903, ótimo);
+      • `alignment_agreement` compara texto, não tempo de exibição.
+    Três réguas, três cegas pro mesmo defeito. Duração precisa da sua.
+
+    esmagada = rápida demais pra ler.  arrastada = fica na tela sem canto.
+    """
+    if not lines:
+        return None
+    pitch = load_pitch(sid)
+    energy = sung_energy(sid, pitch) if pitch else None
+    hop = pitch["hop"] if pitch else None
+    esmagadas, arrastadas = [], []
+    for ln in lines:
+        pal = max(1, len(_norm_txt(ln.get("text", "")).split()))
+        dur = (ln.get("end") or ln["t"]) - ln["t"]
+        if dur < max(0.25, 0.12 * pal):
+            esmagadas.append(round(ln["t"], 1))
+            continue
+        # ‼️ duração longa NÃO é defeito por si: nota sustentada dura mesmo
+        # (I Have a Dream, que o Marcus aprova, tinha 7 linhas assim e o
+        # detector cru reprovava todas). O defeito é a linha ficar na tela sem
+        # NINGUÉM CANTANDO — aí quem decide é a energia, não o relógio.
+        if dur > 3.0 and energy and hop:
+            a, b = int(ln["t"] / hop), min(len(energy), int((ln["end"]) / hop))
+            if b > a:
+                mudo = 1 - sum(energy[a:b]) / (b - a)
+                if mudo > 0.6:
+                    arrastadas.append(round(ln["t"], 1))
+    return {"esmagadas": len(esmagadas), "arrastadas": len(arrastadas),
+            "onde_esmagada": esmagadas[:10], "onde_arrastada": arrastadas[:10]}
+
+
 def _erro_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
     """Compara duas versões DAS MESMAS linhas — as verificáveis na base.
 
@@ -2711,7 +2750,8 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
               "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
               "alignMethod": method, "reconciled": reconciled, "agreement": acordo,
-              "quality": qual, "coverage": cob, "perceptual": percept}
+              "quality": qual, "coverage": cob, "perceptual": percept,
+              "duracao": dur}
     _update_entry(sid, lyrics=result, autoOffset=0)
     return result
 

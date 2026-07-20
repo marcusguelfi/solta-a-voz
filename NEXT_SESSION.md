@@ -232,3 +232,29 @@ número guardado de antes.
 | Epitáfio (CONTROLE) | 0,894 | 0 | 0,866 | intacto ✅ |
 | Bad Boys | 0,718 | 1 | 0,298 → **0,903** | grande melhora ✅ |
 | Psycho Killer | 0,424 | 5 | 0,719 | melhorou (0,333→0,424), ainda ruim |
+
+## ‼️ Gotcha 15 — o TERCEIRO ponto cego, achado de OUVIDO (Bad Boys 2:30)
+
+O Marcus cantou e achou o que três réguas não viam: linha 56 durava **0,40s**
+(5 palavras — pisca e some) e a 57 ficava **6,13s** travada na tela.
+
+- `perceptual_score` só olha o INÍCIO da linha → cego
+- `display_coverage` só olha o TOTAL coberto (dava 0,903, ótimo) → cego
+- `alignment_agreement` compara texto, não tempo de exibição → cego
+
+`duracao_suspeita(sid, lines)` fecha isso. **Duração longa NÃO é defeito por si**
+— nota sustentada dura mesmo (o detector cru reprovava 7 linhas do I Have a
+Dream, que ele aprova). O defeito é a linha ficar na tela **sem ninguém
+cantando**: quem decide é a energia, não o relógio (>60% muda + >3s).
+
+Validado: Bad Boys pega 150,9 e 151,3 (exatamente o que ele ouviu);
+Epitáfio zerado; Psycho Killer 2 esmagadas + 13 arrastadas.
+Biblioteca: 52 de 123 afetadas — 123 esmagadas, 60 arrastadas.
+
+**LIÇÃO GERAL**: cada régua nova nasceu de um defeito que o ouvido dele achou e
+os números não. Antes de soltar lote, vale sempre uma rodada de canto — está
+saindo mais barato que qualquer análise.
+
+## ⏳ PENDENTE, relatado pelo Marcus e AINDA NÃO investigado
+"às vezes o 'bad boy' não aparecia no gráfico de baixo pra pontuar" — é o
+subsistema de PITCH/pontuação (pitch.json), não o alinhamento. Não olhei ainda.
