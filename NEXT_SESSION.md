@@ -321,3 +321,32 @@ Docker Desktop estava **pausado manualmente**; só dá pra retomar pela interfac
 o daemon segue recusando. `.claude/launch.json` já existe com o alvo `karaoke`.
 Antes de subir qualquer coisa: conferir a porta 8777 (regra do `data/` — lock
 não atravessa host/container).
+
+## 🐳 DOCKER — TESTADO 2026-07-20 (funciona, com ressalvas)
+
+Teste de fumaça com `solta-a-voz:latest` (imagem de 37h atrás), container em
+porta 8899 com pasta `data` DESCARTÁVEL (nunca monte a real num teste):
+
+| item | resultado |
+|---|---|
+| landing `/` | HTTP 200 |
+| app `/app.html` | HTTP 200 |
+| API `/api/songs` | 200, `[]` (biblioteca vazia = volume novo, correto) |
+| volume | criou `library.lock`, `media/`, `models/`, `stems/` |
+| ffmpeg | 7.1.5 ✓ |
+| torch | 2.13.0+**cpu** ✓ (índice cpu funcionou, imagem 4,29GB) |
+
+### Ressalvas encontradas
+- **`faster_whisper` NÃO está na imagem antiga** — entrou no `requirements.txt`
+  depois dela. O código degrada bem (`_get_faster_whisper()` cai no stable-ts),
+  mas perde o caminho rápido. **Rebuild é obrigatório quando requirements muda.**
+- **`torchaudio` não carrega** (`_torchaudio.abi3.so`): afeta o motor MMS, que
+  é opcional — `_melhor_alinhamento` engole a exceção e usa os outros. Se for
+  usar MMS no servidor, investigar.
+- Build completo demora **muito** (torch + deps). Um `docker build` novo estava
+  ainda rodando ao fim da sessão.
+
+### Regra que virou comentário no docker-compose.yml
+O compose monta `./data:/app/data` — a MESMA pasta do `start.bat`. Rodar os dois
+juntos corrompe o `library.json` (lock não atravessa host/container, incidente
+de 2026-07-17). Aviso agora está no próprio arquivo.
