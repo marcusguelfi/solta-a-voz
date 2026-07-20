@@ -10,6 +10,7 @@ pytest
 # ATENÇÃO: Python 3.11–3.13 apenas — 3.14 ainda quebra as wheels (diffq etc.)
 audio-separator[cpu]
 stable-ts
+faster-whisper
 soundfile
 librosa
 numpy

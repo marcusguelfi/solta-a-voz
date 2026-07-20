@@ -838,6 +838,48 @@ SPEECH_MARGIN = 0.3       # folga (s) nas bordas do segmento
 _speech_cache: dict[str, dict | None] = {}
 
 
+_fw_model = None
+_fw_lock = threading.Lock()
+# modelo da transcrição completa. "medium" cabe na CPU graças ao faster-whisper
+# (CTranslate2 + int8, ~4× mais rápido que o whisper original): sobe a qualidade
+# pra TODO MUNDO, sem exigir GPU — o app é feito pra distribuir, não pra nicho.
+FW_MODEL = os.environ.get("KARAOKE_FW_MODEL", "medium")
+
+
+def _get_faster_whisper():
+    """Modelo de transcrição rápido. None se a lib não estiver instalada —
+    o pipeline cai no stable-ts de sempre (nunca quebra por causa disso)."""
+    global _fw_model
+    with _fw_lock:
+        if _fw_model is None:
+            try:
+                from faster_whisper import WhisperModel
+
+                _fw_model = WhisperModel(FW_MODEL, device="cpu", compute_type="int8")
+            except Exception:
+                logging.exception("faster-whisper indisponível; usando stable-ts")
+                _fw_model = False
+        return _fw_model or None
+
+
+def _transcribe_fw(sid: str, vocals: Path, lang: str | None):
+    """Transcrição completa com faster-whisper -> (segmentos, palavras)."""
+    model = _get_faster_whisper()
+    if not model:
+        return None
+    segs, _info = model.transcribe(str(vocals), language=lang, word_timestamps=True,
+                                   vad_filter=False)
+    segmentos, palavras = [], []
+    for s in segs:
+        segmentos.append([round(s.start, 2), round(s.end, 2),
+                          round(float(getattr(s, "no_speech_prob", 0.0) or 0.0), 3)])
+        for w in (s.words or []):
+            txt = (w.word or "").strip()
+            if txt and w.end > w.start:
+                palavras.append([round(w.start, 2), round(w.end, 2), txt])
+    return (segmentos, palavras) if palavras else None
+
+
 def full_transcribe(sid: str, force: bool = False) -> dict | None:
     """UMA passada de transcrição na música inteira que alimenta as duas frentes
     do ALIGN v2: os segmentos com no_speech_prob (máscara de fala, fase A) e as
@@ -847,22 +889,31 @@ def full_transcribe(sid: str, force: bool = False) -> dict | None:
     vocals = STEMS / sid / "vocals.mp3"
     if not vocals.exists():
         return None
+    lang = detected_language(sid)
+    segments, words = None, None
     try:
-        model = _get_whisper()
-        result = model.transcribe(str(vocals), language=detected_language(sid),
-                                  word_timestamps=True, suppress_silence=False)
+        rapido = _transcribe_fw(sid, vocals, lang)   # faster-whisper "medium" (CPU)
+        if rapido:
+            segments, words = rapido
     except Exception:
-        logging.exception("transcrição completa falhou pra %s", sid)
-        return None
-    segments = [[round(float(s.start), 2), round(float(s.end), 2),
-                 round(float(getattr(s, "no_speech_prob", 0.0) or 0.0), 3)]
-                for s in result.segments]
-    words = []
-    for seg in result.segments:
-        for w in (seg.words or []):
-            txt = (getattr(w, "word", "") or "").strip()
-            if txt and float(w.end) > float(w.start):
-                words.append([round(float(w.start), 2), round(float(w.end), 2), txt])
+        logging.exception("faster-whisper falhou em %s; caindo pro stable-ts", sid)
+    if not words:
+        try:
+            model = _get_whisper()
+            result = model.transcribe(str(vocals), language=lang,
+                                      word_timestamps=True, suppress_silence=False)
+        except Exception:
+            logging.exception("transcrição completa falhou pra %s", sid)
+            return None
+        segments = [[round(float(s.start), 2), round(float(s.end), 2),
+                     round(float(getattr(s, "no_speech_prob", 0.0) or 0.0), 3)]
+                    for s in result.segments]
+        words = []
+        for seg in result.segments:
+            for w in (seg.words or []):
+                txt = (getattr(w, "word", "") or "").strip()
+                if txt and float(w.end) > float(w.start):
+                    words.append([round(float(w.start), 2), round(float(w.end), 2), txt])
     end = max((s[1] for s in segments), default=0.0)
     data = {"segments": segments, "covered": [0.0, round(end, 2)]}
     try:
