@@ -726,6 +726,106 @@ def test_onset_error_median_e_independente_da_transcricao(monkeypatch):
     assert e_certo < 0.1 and e_atras > 0.3           # enxerga o viés de 400ms
 
 
+# ------------------------------------- ALIGN v4 (a): alinhamento local com custo
+
+def test_local_align_acha_ilha_e_nao_forca_o_resto():
+    """v4(a): o trecho que existe nos dois casa; o verso que o ASR não ouviu
+    NÃO ganha âncora inventada — fica de fora pra virar gap interpolado."""
+    a = "quando eu nao puder pisar mais na avenida".split()
+    fantasma = "esse verso aqui ninguem cantou nunca jamais".split()
+    b = "vou deixar a saudade ficar por aqui comigo".split()
+    letra, canto = a + fantasma + b, a + b
+    pares = main.local_align_words(letra, canto)
+    assert pares == sorted(pares)                              # monotônico
+    ancorados = {i for i, _ in pares}
+    assert all(i in ancorados for i in range(len(a)))          # 1ª frase inteira
+    ini_f, ini_b = len(a), len(a) + len(fantasma)
+    assert not (ancorados & set(range(ini_f, ini_b)))          # o fantasma, nenhuma
+    assert all(i in ancorados for i in range(ini_b, len(letra)))  # a ilha DEPOIS também
+
+
+def test_local_align_nao_ancora_palavra_divergente_dentro_da_ilha():
+    """Palavra trocada no meio da frase é gap, não âncora: o tempo dela é
+    interpolado entre as vizinhas confiáveis."""
+    letra = "agora eu era o heroi e o meu cavalo branco".split()
+    canto = "agora eu era o XXXXX e o meu cavalo branco".split()
+    pares = main.local_align_words(letra, canto)
+    assert (4, 4) not in pares                         # 'heroi' x 'XXXXX'
+    assert (0, 0) in pares and (9, 9) in pares          # cerca dos dois lados
+
+
+def test_local_align_recusa_texto_de_outra_musica():
+    letra = "agora eu era o heroi e o meu cavalo".split()
+    canto = "yesterday all my troubles seemed so far away".split()
+    assert main.local_align_words(letra, canto) == []
+
+
+def test_local_align_nao_casa_palavra_curta_por_acaso():
+    """CICATRIZ da família das que já nos morderam: 'de'/'da'/'eu' casam em
+    qualquer lugar e produzem âncora falsa que arrasta a frase."""
+    assert main._sim_palavra("de", "da") == 0.0
+    assert main._sim_palavra("eu", "eu") == 1.0        # idêntica ainda vale
+    assert main._sim_palavra("coracao", "coracoes") >= 0.8    # flexão: ainda ancora
+    assert main._sim_palavra("cantar", "cantei") == 0.0       # raiz igual, palavra outra
+
+
+def test_global_align_com_sw_mantem_o_tempo_do_canto(monkeypatch):
+    """v4(a) trocou o casador por baixo do motor global: o contrato de fora
+    (linha no tempo em que foi cantada) tem que continuar valendo."""
+    _wt(monkeypatch, [(10.0, "agora eu era o heroi e o meu cavalo"),
+                      (20.0, "so falava ingles a noiva do cowboy"),
+                      (30.0, "era voce alem de outras tres bem ali")])
+    linhas = main.global_align_lines("x", ["Agora eu era o herói e o meu cavalo",
+                                           "Só falava inglês a noiva do cowboy",
+                                           "Era você além de outras três bem ali"])
+    assert linhas is not None
+    assert abs(linhas[0]["t"] - 10.0) < 0.2
+    assert abs(linhas[2]["t"] - 30.0) < 0.2
+
+
+def _energia(monkeypatch, marcos, hop=0.032, dur=2.0, total=200.0):
+    n = int(total / hop)
+    energy = [0] * n
+    for a in marcos:
+        for k in range(int(a / hop), min(n, int((a + dur) / hop))):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    return energy
+
+
+def test_erro_pareado_compara_as_mesmas_linhas(monkeypatch):
+    """CICATRIZ (Take Me Out, v4 a): comparar `onset_error_median` dos dois lados
+    dá veredito FALSO — cada chamada reseleciona quais linhas são verificáveis.
+    O deslocamento certo derrubava o erro de 958ms pra 58ms e era RECUSADO
+    porque uma linha saiu da janela e o n caiu abaixo do mínimo."""
+    marcos = (10.0, 30.0, 50.0, 70.0)
+    _energia(monkeypatch, marcos)
+    base = [{"t": a - 0.9, "end": a + 1.0, "text": f"linha longa numero {i}"}
+            for i, a in enumerate(marcos)]
+    # a última fica longe demais e some da janela quando corrigimos o viés
+    base.append({"t": 120.0, "end": 121.0, "text": "linha fora de qualquer onset"})
+    corrigido = [{**ln, "t": ln["t"] + 0.9, "end": ln["end"] + 0.9} for ln in base]
+    a, b, n = main._erro_pareado("x", base, corrigido)
+    assert n >= 3
+    assert b < a                      # o pareado ENXERGA a melhora
+    assert a > 0.5 and b < 0.2
+
+
+def test_vies_so_e_aplicado_se_a_energia_confirmar(monkeypatch):
+    """CICATRIZ: a correção de viés era um palpite aplicado SEM conferência —
+    chegou a arrastar 33 linhas de uma música que já estava a 178ms."""
+    marcos = (10.0, 30.0, 50.0, 70.0)
+    _energia(monkeypatch, marcos)
+    certo = [{"t": a, "end": a + 1.5, "text": f"linha longa numero {i}"}
+             for i, a in enumerate(marcos)]
+    piorado = [{**ln, "t": ln["t"] + 0.6, "end": ln["end"] + 0.6} for ln in certo]
+    a, b, _n = main._erro_pareado("x", certo, piorado)
+    assert b > a                      # deslocar quem já está certo PIORA
+    # e quem está certo não gera candidato nenhum (viés abaixo do limiar)
+    assert main._vies_candidatos("x", certo) == []
+
+
 def test_alignment_quality_separa_ancoravel_de_curta(monkeypatch):
     """v4(c): linha curta demais não é erro de alinhamento — é característica
     da letra (Samurai: 45% das linhas com <5 palavras). A métrica tem que

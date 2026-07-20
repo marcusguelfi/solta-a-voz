@@ -644,6 +644,66 @@ quando a concordância < 0,65 → card mostra "⚠ revisar sync".
   medidos: 0,83–0,996 (o ASR está melhor do que eu supunha; o buraco é
   alinhamento).
 
+### ALIGN v4 (a) ✅ — casador LOCAL com custo (Smith-Waterman)
+
+`local_align_words()` substituiu o `difflib` dentro do motor global. O difflib
+(Ratcliff-Obershelp) casa "o que der": sem penalidade de gap nem de divergência.
+Smith-Waterman pontua — match ganha, buraco e divergência PAGAM — então acha
+ilhas de confiança e **não força o resto** (o resto vira gap interpolado, que é
+o comportamento honesto). Recursão nos retângulos antes/depois da melhor ilha
+mantém a monotonicidade e cobre a música inteira.
+
+`_sim_palavra()`: só ancora palavra **idêntica** se for curta (<5 letras).
+'de'/'da'/'eu' casam em qualquer lugar e produzem âncora falsa — mesma família
+do erro do anchor v1. Flexão ('coracao'/'coracoes', ≥0,8) ainda ancora.
+
+**Medido nos 7 casos** (`server/ab_sw.py`, grava `data/ab_sw.json`):
+
+| música | âncoras difflib → SW | onset pareado | acordo |
+|---|---|---|---|
+| Samurai | 118 → **136** | 185 → 204ms (n=4) | 0,562 → 0,802 |
+| Samba Morrer | 242 → **253** | 186 → 186ms | 0,865 = |
+| Epitáfio | 149 → 149 | 302 → 302ms | 0,895 = |
+| Whisky a Go-Go | 145 → **166** | 4 → 10ms | 0,600 → 0,664 |
+| Vamos Fugir | 194 → **196** | 334 → 324ms | 0,563 = |
+| Take Me Out | 170 → **175** | **178 → 58ms** | 0,563 → 0,555 |
+| I Have a Dream (controle) | 188 → **189** | 330 → 330ms | 0,932 = |
+
+Âncora subiu em 6 de 7, onset não regrediu em lugar nenhum (Whisky 4→10ms está
+abaixo da resolução do frame, ~32ms). **Leitura honesta**: o ganho do SW é em
+ANCORAGEM (menos linha chutada por interpolação), não em onset. E o salto de
+concordância do Samurai é em boa parte por construção — mais palavra ancorada
+no tempo do ASR faz a linha concordar com o próprio ASR; a régua independente
+diz empate ali. Não confundir as duas coisas.
+
+**NÃO existe fallback "se o SW achar menos âncora, usa o difflib"** — chegou a
+existir e foi removido. Difflib achar MAIS âncora significa âncora FALSA: no
+Take Me Out ele casava 'I'/'know'/'you' soltos numa região onde a transcrição
+está VAZIA (50s–82s sem nenhuma palavra) e cravava uma linha 20s fora do lugar.
+
+`KARAOKE_ALIGN_SW=0` volta pro difflib (é assim que o A/B mede um contra o outro).
+
+### ‼️ Duas cicatrizes de MÉTODO descobertas aqui (valem mais que a feature)
+
+**1. Comparar A com B exige as MESMAS amostras.** `onset_error_median`
+reseleciona quais linhas são verificáveis a cada chamada. Medindo cada lado
+solto, o SW no Take Me Out apareceu como 5× PIOR (178 → 958ms); na comparação
+pareada era 3× MELHOR (178 → 58ms). O veredito era artefato da metodologia.
+Use `_erro_pareado()` / `linhas_verificaveis()` pra qualquer A/B daqui pra frente.
+
+**2. A régua às vezes está quase cega — e isso tem que aparecer.** No Take Me
+Out só **4 das 33 linhas** são verificáveis pela energia. Qualquer veredito ali
+é evidência fraca. O A/B agora imprime `verificaveis: n/total` junto do número,
+pra ninguém tratar 4 amostras como se fossem 33.
+
+**3. Correção global se VALIDA antes de valer** (igual ao reconcile). A correção
+de viés era um palpite único aplicado sem conferência, e errava nos dois
+sentidos: desistia quando a amostra era torta (deixava o Take Me Out 870ms
+adiantado) e, quando agia, ninguém checava. Agora `_vies_candidatos()` propõe
+vários deslocamentos e a energia escolhe; empate ou piora = não mexe. A régua é
+**veto, nunca alvo de busca** — se virar alvo, o número que a gente reporta
+deixa de ser avaliação independente.
+
 ## ➡️ Continua aberto no `ALIGN_V3_PLAN.md`: fases 1 e 2
 
 Escrito 2026-07-19 a pedido do Marcus ("concordância perto de 1,00"), com

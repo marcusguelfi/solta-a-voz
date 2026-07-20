@@ -1842,6 +1842,111 @@ def agreement_ceiling(sid: str, lines: list[dict]) -> float | None:
     return round(sum(notas) / len(notas), 4) if notas else None
 
 
+def _sim_palavra(a: str, b: str) -> float:
+    """Semelhança entre duas palavras já normalizadas: 1.0 idêntica, 0.8+ quase
+    (flexão que o ASR errou: 'coracao'/'coracoes'), 0 diferente.
+
+    Palavra curta só conta se for IDÊNTICA: 'de'/'da'/'eu' casam em qualquer
+    lugar da música e produzem âncora falsa que arrasta a frase inteira — é a
+    mesma família de erro que já nos mordeu no anchor v1."""
+    if a == b:
+        return 1.0
+    if min(len(a), len(b)) < 5 or abs(len(a) - len(b)) > 3:
+        return 0.0
+    import difflib
+
+    r = difflib.SequenceMatcher(None, a, b).ratio()
+    return r if r >= 0.8 else 0.0
+
+
+def local_align_words(L: list[str], T: list[str], *, ganho: float = 2.0,
+                      quase: float = 1.0, erro: float = -1.2, gap: float = -0.7,
+                      min_ancoras: int = 2, max_celulas: int = 1_200_000,
+                      _prof: int = 0) -> list[tuple[int, int]]:
+    """ALIGN v4 (a) — ALINHAMENTO LOCAL (Smith-Waterman) no lugar do casamento
+    sem custo.
+
+    O problema que isso resolve: letra e áudio NÃO são sequências 1:1. Tem
+    instrumental, verso não cantado, palavra que o ASR não ouviu. O `difflib`
+    (Ratcliff-Obershelp) casa "o que der" — não tem penalidade de gap nem de
+    divergência, então costura pedaço de letra em cima de trecho errado só
+    porque sobrou espaço.
+
+    Smith-Waterman pontua: match ganha, divergência e buraco PAGAM. O resultado
+    é que ele acha ILHAS de alta confiança e simplesmente não força o resto —
+    o resto vira gap interpolado, que é o comportamento honesto.
+
+    Estratégia: acha a melhor ilha, e recorre no retângulo ANTES e no DEPOIS
+    dela. Isso mantém a monotonicidade (letra e canto andam pra frente juntos)
+    e ainda cobre a música inteira, não só o melhor trecho.
+
+    Devolve pares (índice na letra, índice na transcrição) monotônicos — só das
+    palavras que realmente casaram. O que não casou fica de fora de propósito.
+    """
+    n, m = len(L), len(T)
+    if n < min_ancoras or m < min_ancoras or _prof > 12:
+        return []
+    if n * m > max_celulas:                       # letra gigante: divide no meio
+        meio = n // 2
+        corte = min(m - 1, max(1, round(m * meio / n)))
+        esq = local_align_words(L[:meio], T[:corte], ganho=ganho, quase=quase,
+                                erro=erro, gap=gap, min_ancoras=min_ancoras,
+                                max_celulas=max_celulas, _prof=_prof + 1)
+        dir_ = local_align_words(L[meio:], T[corte:], ganho=ganho, quase=quase,
+                                 erro=erro, gap=gap, min_ancoras=min_ancoras,
+                                 max_celulas=max_celulas, _prof=_prof + 1)
+        return esq + [(i + meio, j + corte) for i, j in dir_]
+
+    H = [[0.0] * (m + 1) for _ in range(n + 1)]
+    P = [[0] * (m + 1) for _ in range(n + 1)]     # 1=diagonal 2=gap na letra 3=gap no canto
+    melhor, bi, bj = 0.0, 0, 0
+    for i in range(1, n + 1):
+        li, Hi, Hp, Pi = L[i - 1], H[i], H[i - 1], P[i]
+        for j in range(1, m + 1):
+            s = _sim_palavra(li, T[j - 1])
+            d = Hp[j - 1] + (ganho if s >= 1.0 else (quase if s else erro))
+            u = Hp[j] + gap
+            e = Hi[j - 1] + gap
+            v, p = d, 1
+            if u > v:
+                v, p = u, 2
+            if e > v:
+                v, p = e, 3
+            if v <= 0:
+                v, p = 0.0, 0
+            Hi[j], Pi[j] = v, p
+            if v > melhor:
+                melhor, bi, bj = v, i, j
+    if melhor <= 0:
+        return []
+
+    pares: list[tuple[int, int]] = []
+    i, j = bi, bj
+    while i > 0 and j > 0 and P[i][j]:
+        p = P[i][j]
+        if p == 1:
+            if _sim_palavra(L[i - 1], T[j - 1]):
+                pares.append((i - 1, j - 1))      # divergência dentro da ilha NÃO vira âncora
+            i, j = i - 1, j - 1
+        elif p == 2:
+            i -= 1
+        else:
+            j -= 1
+    pares.reverse()
+    if len(pares) < min_ancoras:
+        return []
+    i0, j0 = pares[0]
+    i1, j1 = pares[-1]
+
+    antes = local_align_words(L[:i0], T[:j0], ganho=ganho, quase=quase, erro=erro,
+                              gap=gap, min_ancoras=min_ancoras,
+                              max_celulas=max_celulas, _prof=_prof + 1)
+    depois = local_align_words(L[i1 + 1:], T[j1 + 1:], ganho=ganho, quase=quase,
+                               erro=erro, gap=gap, min_ancoras=min_ancoras,
+                               max_celulas=max_celulas, _prof=_prof + 1)
+    return antes + pares + [(i + i1 + 1, j + j1 + 1) for i, j in depois]
+
+
 def global_align_lines(sid: str, line_texts: list[str],
                        min_cobertura: float = 0.35) -> list[dict] | None:
     """ALIGN v3 fase 3 — ALINHAMENTO GLOBAL DE SEQUÊNCIAS (âncoras + gaps).
@@ -1880,16 +1985,26 @@ def global_align_lines(sid: str, line_texts: list[str],
     if len(L) < 8:
         return None
 
-    # autojunk=False: com letra longa o difflib trataria palavras frequentes
-    # ("que", "eu") como lixo e jogaria fora âncoras boas
-    blocos = difflib.SequenceMatcher(None, L, T, autojunk=False).get_matching_blocks()
+    def _blocos_difflib() -> list[tuple[int, int]]:
+        # autojunk=False: com letra longa o difflib trataria palavras frequentes
+        # ("que", "eu") como lixo e jogaria fora âncoras boas
+        bl = difflib.SequenceMatcher(None, L, T, autojunk=False).get_matching_blocks()
+        return [(a + k, b + k) for a, b, tam in bl for k in range(tam)]
+
+    # ALIGN v4 (a): casador com CUSTO (Smith-Waterman). KARAOKE_ALIGN_SW=0 volta
+    # pro difflib — é assim que o A/B mede um contra o outro.
+    # ‼️ NÃO existe fallback "se o SW achar menos âncora, usa o difflib". Chegou a
+    # existir e foi removido: medido nos 7 casos, o difflib achando MAIS âncora
+    # que o SW significa âncora FALSA, não cobertura melhor — no Take Me Out ele
+    # casava 'I'/'know'/'you' soltos e cravava uma linha 20s fora do lugar.
+    # Menos âncora e mais honesta é o resultado desejado.
+    pares = (local_align_words(L, T)
+             if os.environ.get("KARAOKE_ALIGN_SW", "1") != "0" else _blocos_difflib())
     ini: list[float | None] = [None] * len(L)
     fim: list[float | None] = [None] * len(L)
-    ancoradas = 0
-    for a, b, tam in blocos:
-        for k in range(tam):
-            ini[a + k], fim[a + k] = tw[b + k][0], tw[b + k][1]
-            ancoradas += 1
+    for a, b in pares:
+        ini[a], fim[a] = tw[b][0], tw[b][1]
+    ancoradas = sum(1 for v in ini if v is not None)
     cobertura = ancoradas / len(L)
     if cobertura < min_cobertura:
         logging.info("alinhamento global recusado em %s: só %.0f%% das palavras "
@@ -1957,14 +2072,28 @@ def global_align_lines(sid: str, line_texts: list[str],
     # sistemático se mede e se corrige: compara com os onsets de energia (fonte
     # independente) e desloca o conjunto pela mediana. Estrutura do global +
     # relógio da energia.
-    vies = _vies_vs_onsets(sid, lines)
-    if vies is not None and 0.08 <= abs(vies) <= 1.2:
-        for ln in lines:
-            ln["t"] = round(max(0.0, ln["t"] - vies), 2)
-            ln["end"] = round(max(ln["t"] + 0.3, ln["end"] - vies), 2)
-            if ln.get("words"):
-                pass  # words são relativas ao início da linha: seguem junto
-        logging.info("global em %s: viés de %.0fms corrigido", sid, 1000 * vies)
+    # ‼️ CICATRIZ (Take Me Out, v4 a): antes isso era um palpite ÚNICO aplicado
+    # SEM VALIDAÇÃO. Dava nos dois erros opostos — desistia quando a amostra era
+    # torta (deixando a música 870ms atrasada) e, quando resolvia agir, ninguém
+    # conferia se tinha melhorado. Agora propõe vários deslocamentos e a régua
+    # INDEPENDENTE (energia) escolhe; empate ou piora = não mexe.
+    melhor_vies, melhor_erro, melhor_linhas, antes = None, None, None, None
+    for vies in _vies_candidatos(sid, lines):
+        cand = [{**ln,
+                 "t": round(max(0.0, ln["t"] - vies), 2),
+                 "end": round(max(max(0.0, ln["t"] - vies) + 0.3, ln["end"] - vies), 2)}
+                for ln in lines]      # words são relativas ao início: seguem junto
+        a, b, n = _erro_pareado(sid, lines, cand)
+        if a is None:                 # régua cega: mantém o comportamento
+            melhor_vies, melhor_linhas = vies, cand    # histórico (aplica o palpite)
+            break
+        antes = a
+        if b < a and (melhor_erro is None or b < melhor_erro):
+            melhor_vies, melhor_erro, melhor_linhas = vies, b, cand
+    if melhor_linhas is not None:
+        lines = melhor_linhas
+        logging.info("global em %s: viés de %.0fms corrigido (erro %s -> %s)",
+                     sid, 1000 * melhor_vies, antes, melhor_erro)
     logging.info("alinhamento global em %s: %.0f%% das palavras ancoradas",
                  sid, 100 * cobertura)
     return lines
@@ -1972,25 +2101,12 @@ def global_align_lines(sid: str, line_texts: list[str],
 
 def _vies_vs_onsets(sid: str, lines: list[dict]) -> float | None:
     """Deslocamento sistemático (s, positivo = atrasado) entre as linhas e os
-    onsets de voz reais. Mediana SINALIZADA — só faz sentido se a maioria das
-    linhas erra para o MESMO lado (aí é viés, não imprecisão)."""
+    onsets de voz reais — mediana SINALIZADA. Quem aplica é global_align_lines,
+    e só depois de validar contra a energia (ver _vies_candidatos)."""
     import statistics
 
-    pitch = load_pitch(sid)
-    energy = sung_energy(sid, pitch)
-    if not energy or not lines:
-        return None
-    hop = pitch["hop"]
-    gap = max(1, int(0.4 / hop))
-    onsets, silencio = [], gap + 1
-    for k, v in enumerate(energy):
-        if v:
-            if silencio >= gap:
-                onsets.append(k * hop)
-            silencio = 0
-        else:
-            silencio += 1
-    if len(onsets) < 4:
+    onsets = _onsets_de_frase(sid)
+    if len(onsets) < 4 or not lines:
         return None
     difs = []
     for i, ln in enumerate(lines):
@@ -2002,9 +2118,73 @@ def _vies_vs_onsets(sid: str, lines: list[dict]) -> float | None:
             difs.append(ln["t"] - perto)
     if len(difs) < 4:
         return None
-    mediana = statistics.median(difs)
-    mesmo_lado = sum(1 for d in difs if (d > 0) == (mediana > 0)) / len(difs)
-    return round(mediana, 3) if mesmo_lado >= 0.7 else None
+    return round(statistics.median(difs), 3)
+
+
+def _vies_candidatos(sid: str, lines: list[dict]) -> list[float]:
+    """Deslocamentos PLAUSÍVEIS pra testar. Antes o estimador devolvia um só
+    palpite e exigia 70% das linhas errando pro mesmo lado — critério que fazia
+    ele desistir justo onde mais precisava (Take Me Out ficou 870ms atrasado
+    porque a amostra era torta). Como a aplicação agora é VALIDADA contra a
+    energia, sai mais barato propor várias e deixar a régua escolher."""
+    import statistics
+
+    onsets = _onsets_de_frase(sid)
+    if not onsets:
+        return []
+
+    def amostrar(so_apos_pausa: bool) -> list[float]:
+        out = []
+        for i, ln in enumerate(lines):
+            fim_ant = (lines[i - 1].get("end") or lines[i - 1]["t"]) if i else -9
+            if so_apos_pausa and i and (ln["t"] - fim_ant) <= 0.8:
+                continue
+            perto = min(onsets, key=lambda o: abs(ln["t"] - o))
+            if abs(ln["t"] - perto) <= 2.0:
+                out.append(ln["t"] - perto)
+        return out
+
+    # linha depois de pausa é a amostra LIMPA (dá pra saber qual onset é dela).
+    # Se sobrar pouca — Take Me Out qualificava só 3 e o palpite era descartado
+    # justo onde havia 900ms de viés — cai pra amostra ampla; quem confere se
+    # prestou é a validação contra a energia, não este palpite.
+    difs = amostrar(True)
+    if len(difs) < 3:
+        difs = amostrar(False)     # só quando a limpa não dá nem 3
+    if len(difs) < 3:
+        return []
+    difs.sort()
+    corte = max(1, len(difs) // 5)
+    aparadas = difs[corte:-corte] or difs      # sem os extremos
+    cands = [statistics.median(difs), statistics.mean(aparadas),
+             statistics.median(aparadas)]
+    vistos, saida = set(), []
+    for c in cands:
+        c = round(c, 3)
+        if 0.08 <= abs(c) <= 1.2 and c not in vistos:
+            vistos.add(c)
+            saida.append(c)
+    return saida
+
+
+def _onsets_de_frase(sid: str) -> list[float]:
+    """Instantes em que a voz VOLTA depois de silêncio — fonte independente da
+    transcrição (energia do stem de voz, com máscara de fala quando existe)."""
+    pitch = load_pitch(sid)
+    energy = sung_energy(sid, pitch)
+    if not energy:
+        return []
+    hop = pitch["hop"]
+    gap = max(1, int(0.4 / hop))
+    onsets, silencio = [], gap + 1
+    for k, v in enumerate(energy):
+        if v:
+            if silencio >= gap:
+                onsets.append(k * hop)
+            silencio = 0
+        else:
+            silencio += 1
+    return onsets
 
 
 def reset_to_pristine(sid: str) -> bool:
@@ -2020,38 +2200,56 @@ def reset_to_pristine(sid: str) -> bool:
     return bool(align_best_candidate(sid))
 
 
-def onset_error_median(sid: str, lines: list[dict]) -> float | None:
-    """Erro mediano (s) do início da linha × onset de frase REAL (energia do
-    áudio). ‼️ É a testemunha INDEPENDENTE: não passa pela transcrição, então
-    é a única que enxerga viés dos timestamps do ASR. Só conta linha que
-    inicia frase (silêncio antes) e tem onset plausível perto."""
-    import statistics
+def linhas_verificaveis(sid: str, lines: list[dict],
+                        janela: float = 3.0) -> tuple[list[int], list[float]]:
+    """Índices das linhas que a testemunha independente CONSEGUE julgar (começam
+    frase, com silêncio antes, e têm onset plausível perto) + os onsets.
 
-    pitch = load_pitch(sid)
-    energy = sung_energy(sid, pitch)
-    if not energy or not lines:
-        return None
-    hop = pitch["hop"]
-    gap = max(1, int(0.4 / hop))
-    onsets, silencio = [], gap + 1
-    for k, v in enumerate(energy):
-        if v:
-            if silencio >= gap:
-                onsets.append(k * hop)
-            silencio = 0
-        else:
-            silencio += 1
-    if not onsets:
-        return None
-    errs = []
+    Vale saber quantas são: no Take Me Out só 4 das 33 linhas são verificáveis,
+    então qualquer veredito ali é evidência fraca — a régua está quase cega."""
+    onsets = _onsets_de_frase(sid)
+    if not onsets or not lines:
+        return [], []
+    idx = []
     for i, ln in enumerate(lines):
         fim_ant = (lines[i - 1].get("end") or lines[i - 1]["t"]) if i else -9
         if i and (ln["t"] - fim_ant) <= 0.8:
             continue  # canto contínuo: não dá pra verificar
-        d = min(abs(ln["t"] - o) for o in onsets)
-        if d <= 3.0:
-            errs.append(d)
-    return round(statistics.median(errs), 3) if len(errs) >= 4 else None
+        if min(abs(ln["t"] - o) for o in onsets) <= janela:
+            idx.append(i)
+    return idx, onsets
+
+
+def onset_error_median(sid: str, lines: list[dict]) -> float | None:
+    """Erro mediano (s) do início da linha × onset de frase REAL (energia do
+    áudio). ‼️ É a testemunha INDEPENDENTE: não passa pela transcrição, então
+    é a única que enxerga viés dos timestamps do ASR."""
+    import statistics
+
+    idx, onsets = linhas_verificaveis(sid, lines)
+    if len(idx) < 4:
+        return None
+    errs = [min(abs(lines[i]["t"] - o) for o in onsets) for i in idx]
+    return round(statistics.median(errs), 3)
+
+
+def _erro_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
+    """Compara duas versões DAS MESMAS linhas — as verificáveis na base.
+
+    ‼️ CICATRIZ (Take Me Out, v4 a): comparar `onset_error_median` dos dois lados
+    parece certo e não é: cada chamada RESELECIONA quais linhas dá pra verificar,
+    então antes e depois eram conjuntos diferentes. O deslocamento correto de
+    -930ms deixava o erro em 0,09s e mesmo assim era recusado, porque uma linha
+    saiu da janela e o `n` caiu abaixo do mínimo. Comparação de A com B se faz
+    nas MESMAS amostras."""
+    import statistics
+
+    idx, onsets = linhas_verificaveis(sid, base)
+    if len(idx) < 3 or len(cand) != len(base):
+        return None, None, len(idx)
+    a = statistics.median([min(abs(base[i]["t"] - o) for o in onsets) for i in idx])
+    b = statistics.median([min(abs(cand[i]["t"] - o) for o in onsets) for i in idx])
+    return round(a, 3), round(b, 3), len(idx)
 
 
 def _melhor_alinhamento(sid: str, texts: list[str], folga: float = 0.06):
