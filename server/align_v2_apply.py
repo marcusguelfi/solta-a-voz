@@ -40,7 +40,18 @@ def aplicar(sid: str, engine: str) -> None:
     t0 = time.time()
     # 0) trilho limpo: extensões antigas viram origSynced e envenenam o align
     if FRESH:
-        main.reset_to_pristine(sid)
+        # ‼️ CICATRIZ (Psycho Killer, 2026-07-20): sem `pristineSynced` NÃO existe
+        # trilho pristino pra voltar — `reset_to_pristine` cai no
+        # `align_best_candidate`, que RE-BUSCA a letra na internet. No Psycho
+        # Killer isso trouxe um LRC pior (nota 0,236 contra 0,680 do que estava)
+        # e a música regrediu. Só 5 das 123 músicas têm pristineSynced, então em
+        # lote o --fresh re-buscaria a letra de ~118 — com risco de pegar versão
+        # ao vivo, que já nos mordeu antes (Flor de Tangerina).
+        if (entry.get("lyrics") or {}).get("pristineSynced"):
+            main.reset_to_pristine(sid)
+        else:
+            log(f"   --fresh IGNORADO em {titulo}: sem pristineSynced, resetar "
+                f"re-buscaria a letra (risco de piorar)")
     # 1) transcrição completa: máscara de fala (A) + palavras pras âncoras (C)
     if not (main.STEMS / sid / "words.json").exists():
         main.full_transcribe(sid)

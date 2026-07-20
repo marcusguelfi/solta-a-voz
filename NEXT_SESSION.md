@@ -203,3 +203,32 @@ falhando: é que a letra não está onde há canto. Quem os reprova é a
 Após `rescore.py` com a régua nova: **99 de 123 marcadas, 502 linhas perdidas**
 (antes 80 e 262) — os números pioraram porque a régua enxerga mais, não porque
 o alinhamento piorou.
+
+## ⚠️ Gotchas 13 e 14 (reprocessamento das 3 — 2026-07-20)
+
+### 13. `--fresh` só é seguro com `pristineSynced` — e só 5 de 123 têm
+Sem ele, `reset_to_pristine` cai no `align_best_candidate`, que **RE-BUSCA a
+letra na internet**. Em lote isso re-buscaria a letra de ~118 músicas, com risco
+de pegar versão AO VIVO (já nos mordeu no Flor de Tangerina). Trava posta em
+`align_v2_apply.py`: `--fresh` é ignorado (com log) quando não há pristine.
+
+### 14. A RÉGUA muda quando a música ganha transcrição
+`sung_energy` usa a máscara de fala (`speechmap.json`). Música sem transcrição
+é medida com energia CRUA; depois de transcrita, com energia MASCARADA. São
+instrumentos diferentes.
+
+Eu comparei "0,680 antes × 0,424 depois" no Psycho Killer e concluí REGRESSÃO —
+errado. Medindo os dois estados com a régua atual: **0,333 (antes) × 0,424
+(depois)** = melhorou. Quase revertí uma melhoria. É o gotcha 1 (comparar com
+instrumentos diferentes) numa roupa nova.
+
+**Regra**: ao comparar antes/depois de um reprocessamento que cria
+`speechmap.json`, meça os DOIS estados com o estado final da régua — nunca use
+número guardado de antes.
+
+## Resultado do teste das 3 (aguardando o ouvido do Marcus)
+| música | nota | perdidas | cobertura | veredito da régua |
+|---|---|---|---|---|
+| Epitáfio (CONTROLE) | 0,894 | 0 | 0,866 | intacto ✅ |
+| Bad Boys | 0,718 | 1 | 0,298 → **0,903** | grande melhora ✅ |
+| Psycho Killer | 0,424 | 5 | 0,719 | melhorou (0,333→0,424), ainda ruim |
