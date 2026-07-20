@@ -724,3 +724,24 @@ def test_onset_error_median_e_independente_da_transcricao(monkeypatch):
     e_certo, e_atras = main.onset_error_median("x", certo), main.onset_error_median("x", atrasado)
     assert e_certo is not None and e_atras is not None
     assert e_certo < 0.1 and e_atras > 0.3           # enxerga o viés de 400ms
+
+
+def test_alignment_quality_separa_ancoravel_de_curta(monkeypatch):
+    """v4(c): linha curta demais não é erro de alinhamento — é característica
+    da letra (Samurai: 45% das linhas com <5 palavras). A métrica tem que
+    dizer o que SABE (acordo) e o quanto sabe (cobertura), sem punir por isso."""
+    _wt(monkeypatch, [(10.0, "agora eu era o heroi e o meu cavalo"),
+                      (20.0, "so falava ingles a noiva do cowboy era voce"),
+                      (30.0, "alem de outras tres eu enfrentava os batalhoes")])
+    lines = [
+        {"t": 10.0, "end": 13.0, "text": "Agora eu era o herói e o meu cavalo"},   # ancorável, certa
+        {"t": 20.0, "end": 23.0, "text": "Só falava inglês a noiva do cowboy era você"},
+        {"t": 26.0, "end": 27.0, "text": "Ai, quanto querer"},      # 3 palavras: ambígua
+        {"t": 27.0, "end": 28.0, "text": "Vai, sem dizer"},          # 3 palavras: ambígua
+    ]
+    q = main.alignment_quality("x", lines)
+    assert q["ancoraveis"] == 2 and q["curtas"] == 2
+    assert q["cobertura"] == 0.5
+    assert q["acordo"] > 0.9        # o que dá pra verificar está ÓTIMO
+    # a métrica antiga misturava tudo e daria uma nota bem menor
+    assert main.alignment_agreement("x", lines) < q["acordo"]

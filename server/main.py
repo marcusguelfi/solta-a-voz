@@ -1752,6 +1752,54 @@ def alignment_agreement(sid: str, lines: list[dict]) -> float | None:
     return round(sum(notas) / len(notas), 4) if notas else None
 
 
+def alignment_quality(sid: str, lines: list[dict], min_palavras: int = 5) -> dict | None:
+    """ALIGN v4 (c) — separa O QUE SABEMOS do que chutamos.
+
+    A concordância global mistura linha ancorável com linha curta impossível de
+    ancorar, e pune música de letra picotada por uma característica DELA: no
+    Samurai 45% das linhas têm <5 palavras ("Ai, quanto querer", "Yeah, yeah")
+    e são variações do mesmo verso — ambíguas por natureza, não erradas.
+
+    Devolve:
+      acordo    — concordância SÓ nas linhas ancoráveis (qualidade real);
+      cobertura — fração das linhas que dá pra verificar;
+      ancoraveis/curtas — a contagem por trás dos números.
+    Uma música com cobertura 0,6 e acordo 0,95 é MELHOR que uma com 0,70
+    uniforme de chute — a métrica antiga não distinguia as duas."""
+    import difflib
+
+    wt = word_transcript(sid)
+    if not wt or not lines:
+        return None
+    palavras = [_norm_txt(w).strip() for _a, _b, w in wt]
+    palavras = [w for w in palavras if w]
+    if len(palavras) < 20:
+        return None
+    tw = [(a, b, _norm_txt(w).strip()) for a, b, w in wt]
+    tw = [(a, b, w) for a, b, w in tw if w]
+    notas, curtas = [], 0
+    for ln in lines:
+        alvo = [w for w in _norm_txt(ln.get("text", "")).split() if w]
+        if len(alvo) < min_palavras:
+            curtas += 1
+            continue
+        n = len(alvo)
+        k0 = next((k for k in range(len(tw)) if tw[k][0] >= ln["t"] - 0.3), None)
+        melhor = 0.0
+        if k0 is not None:
+            for k in (k0, k0 + 1):
+                for span in (n - 1, n, n + 1):
+                    if k < len(tw) and span >= 2 and k + span <= len(tw):
+                        melhor = max(melhor, difflib.SequenceMatcher(
+                            None, alvo, palavras[k:k + span]).ratio())
+        notas.append(melhor)
+    if not notas:
+        return {"acordo": None, "cobertura": 0.0, "ancoraveis": 0, "curtas": curtas}
+    return {"acordo": round(sum(notas) / len(notas), 4),
+            "cobertura": round(len(notas) / max(len(lines), 1), 3),
+            "ancoraveis": len(notas), "curtas": curtas}
+
+
 def agreement_ceiling(sid: str, lines: list[dict]) -> float | None:
     """ALIGN v3 fase 0 — o TETO da concordância nesta música.
 
@@ -2149,7 +2197,10 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     # concordância com o canto real: vira o selo de qualidade da música. Abaixo
     # de 0,65 o app avisa "⚠ revisar sync" sozinho — o Marcus não precisa mais
     # descobrir cantando (Samurai deu 0,48 e a régua de onsets dizia "98ms ok").
-    acordo = alignment_agreement(sid, lines)
+    # v4(c): o selo olha a qualidade NAS LINHAS ANCORÁVEIS, não a média que
+    # mistura o que sabemos com o que é impossível verificar
+    qual = alignment_quality(sid, lines)
+    acordo = (qual or {}).get("acordo") if qual else alignment_agreement(sid, lines)
     # só a concordância decide o selo. Recusar o trilho do LRC virou comportamento
     # NORMAL (e desejável — caso Epitáfio), não sintoma: marcar por isso poria
     # "⚠ revisar sync" justamente nas músicas que o pipeline consertou.
@@ -2157,7 +2208,8 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
               "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),
-              "alignMethod": method, "reconciled": reconciled, "agreement": acordo}
+              "alignMethod": method, "reconciled": reconciled, "agreement": acordo,
+              "quality": qual}
     _update_entry(sid, lyrics=result, autoOffset=0)
     return result
 
