@@ -94,7 +94,14 @@ def tratar(sid: str, aplicar: bool) -> None:
     melhor = max(cands, key=lambda c: acordo_com_audio(c["syncedLyrics"], W))
     novo = melhor["syncedLyrics"]
     n_ac, n_cb = acordo_com_audio(novo, W), cobre(novo, dur)
-    ganho = (n_ac > a_ac + 0.05) and (n_cb >= a_cb)
+    # ‼️ duas formas de ser melhor, e a 1ª versão só enxergava uma delas:
+    #   (a) casa MAIS com o canto (letra mais certa);
+    #   (b) cobre MUITO mais da música com o mesmo acordo — é o caso do
+    #       Send Me An Angel (0,64→0,96) e do Eu Vou Estar (0,68→0,96): a letra
+    #       atual está truncada, faltam versos do fim. Exigir ganho de acordo
+    #       recusava justamente essas.
+    ganho = ((n_ac > a_ac + 0.05 and n_cb >= a_cb)
+             or (n_cb > a_cb + 0.15 and n_ac >= a_ac - 0.02))
     print(f"{'==' if ganho else '--'} {titulo[:40]:42} "
           f"acordo {a_ac:.2f}->{n_ac:.2f}  cobre {a_cb:.2f}->{n_cb:.2f}  "
           f"dur_cand={melhor.get('duration'):.0f}s de {dur:.0f}s"

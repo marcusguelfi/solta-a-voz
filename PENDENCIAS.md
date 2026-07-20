@@ -71,3 +71,28 @@ controle e backup do `library.json`.
 - `_vies_vs_onsets` removida (substituída por `_vies_candidatos`, 0 usos).
 - Varredura das 109 funções de `main.py`: as outras 12 "sem uso" são rotas
   FastAPI (usadas por decorator) — **não remover**.
+
+---
+
+## ‼️ CORREÇÃO 2026-07-20 — minha varredura das "7 letras erradas" estava errada
+
+Eu medi o alcance do **nosso alinhamento** (última linha em 200s de 283s) e
+chamei de "letra cobre <72%". Errado: a LETRA cobre a música (Stayin' Alive:
+0,96). O que está truncado é o **alinhamento**, não a fonte.
+
+Medido de verdade nas 7 (`refetch_lyrics.py`): **5 mantêm a letra atual**.
+Só 2 tinham letra realmente incompleta, e por um motivo que minha primeira
+regra de aceite não pegava:
+
+| música | acordo | cobertura da letra | |
+|---|---|---|---|
+| Send Me An Angel '89 | 0,93 → 0,93 | **0,64 → 0,96** | troca |
+| Eu Vou Estar | 1,00 → 1,00 | **0,68 → 0,96** | troca |
+
+Existem DUAS formas de uma letra ser melhor e a 1ª versão da regra só via uma:
+casar mais com o canto **ou** cobrir muito mais da música com o mesmo acordo
+(letra truncada, faltando versos do fim). Regra corrigida.
+
+➡️ **Nova pendência (real, no lugar da falsa)**: por que o alinhamento trunca o
+fim? Stayin' Alive tem letra cobrindo 96% e alinhamento parando em 71%. Suspeitos:
+`drop_ghost_lines` comendo o fim, ou o motor não achando âncora no trecho final.
