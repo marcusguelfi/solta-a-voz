@@ -2329,7 +2329,7 @@ def perceptual_score(sid: str, lines: list[dict]) -> dict | None:
     idx, onsets = linhas_verificaveis(sid, lines)
     if len(idx) < 4:
         return None
-    notas, atrasadas = [], 0
+    notas, atrasadas, perdidas, onde = [], 0, 0, []
     for i in idx:
         t = lines[i]["t"]
         perto = min(onsets, key=lambda o: abs(t - o))
@@ -2337,8 +2337,17 @@ def perceptual_score(sid: str, lines: list[dict]) -> dict | None:
         notas.append(perceptual_line_score(off))
         if off > 0.04:                     # fora da faixa boa, pro lado que dói
             atrasadas += 1
+        if abs(off) > 0.7:
+            # ‼️ CICATRIZ Psycho Killer: linha a MAIS de 0,7s do canto não é
+            # "imprecisa", é IMPOSSÍVEL de cantar — o cantor perde a frase. Ele
+            # tinha 20 linhas ótimas e 4 destas, e a MÉDIA (0,690) diluía os 4
+            # desastres a ponto do selo aprovar a música que o Marcus reprova.
+            # Média nunca vai representar isso: contar as perdidas é obrigatório.
+            perdidas += 1
+            onde.append(round(t, 1))
     return {"nota": round(statistics.mean(notas), 4),
             "ruins": sum(1 for n in notas if n < 0.5),
+            "perdidas": perdidas, "onde": onde[:12],
             "atrasadas": atrasadas, "avaliadas": len(notas),
             "linhas": len(lines)}
 
@@ -2574,9 +2583,19 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     #   percept   — vê o deslocamento como o OUVIDO sente (atraso dói mais).
     cob = display_coverage(sid, lines)
     percept = perceptual_score(sid, lines)
+    # ‼️ `perdidas` (linha a >0,7s do canto) separou o veredito do Marcus MELHOR
+    # que qualquer média: as que ele aprova têm ZERO, as que reprova têm ≥1.
+    # Uma única linha impossível de cantar estraga a música — é literalmente a
+    # reclamação dele. Média nunca vai capturar isso.
     ruim = ((acordo is not None and acordo < 0.65)
             or ((cob or {}).get("cobertura") is not None and cob["cobertura"] < 0.7)
-            or ((percept or {}).get("nota") is not None and percept["nota"] < 0.55))
+            or ((percept or {}).get("nota") is not None and percept["nota"] < 0.55)
+            or ((percept or {}).get("perdidas") or 0) >= 2)
+    # Por que ≥2 e não ≥1: com ≥1 o selo marca 103 das 123 (84%) — aviso que
+    # aparece em quase tudo deixa de ser aviso. Mas `perdidas`/`onde` ficam
+    # gravados SEMPRE, pra toda música, porque a função deles não é avisar: é
+    # levar o editor direto às linhas erradas. São 262 linhas impossíveis de
+    # cantar na biblioteca, e cada uma tem timestamp.
     method = engine + ("-suspeito" if ruim else "")
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
               "origSynced": orig_synced,

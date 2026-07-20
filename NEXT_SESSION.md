@@ -119,3 +119,27 @@ Diagnostique com **tempo + 2 primeiras palavras**, ou por contagem/similaridade.
   `main._update_entry`.
 - **O ouvido do Marcus é a autoridade final.** As notas servem pra ESCOLHER
   quais 3 músicas ele testa, não pra decidir no lugar dele.
+
+## Adendo — `perdidas`, o discriminador que faltava (fim da sessão 2026-07-20)
+
+Psycho Killer NÃO tem deriva (delta −0,058s entre 1ª e 2ª metade — não é LRC de
+outra gravação). Ele tem **20 linhas ótimas e 4 impossíveis** (>0,7s do canto),
+em 44,1s / 77,4s / 92,6s / 131,2s. A imagem que o Marcus mandou era em 1:23 =
+83s, colada na linha de 77,4s. Bate exatamente.
+
+`perceptual_score` agora devolve `perdidas` (linhas >0,7s fora) e `onde` (os
+timestamps). **Separou o veredito do Marcus perfeitamente**: Epitáfio 0/22 e
+I Have a Dream 0/21 (ele aprova); Psycho Killer 4/24, Samurai 4/13,
+September 1/10, Stayin' Alive 1/5 (ele reprova).
+
+Média NUNCA vai capturar isso — 20 linhas boas diluem 4 desastres e a nota fica
+em 0,690, "aprovado". **Uma única linha impossível estraga a música.**
+
+Números da biblioteca: **262 linhas impossíveis de cantar**, cada uma com
+timestamp. Selo em `perdidas>=2` marca 80 de 123; em `>=1` marcava 103 (84%,
+vira ruído). `perdidas`/`onde` são gravados SEMPRE — a função deles é alimentar
+o editor, não avisar.
+
+➡️ **Isso torna o item 4 do plano o de maior retorno agora**: o editor abrindo
+em `onde` transforma "editar a música" em "confirmar 2 linhas". Os timestamps
+já existem, é só a UI.

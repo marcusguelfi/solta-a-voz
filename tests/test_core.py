@@ -814,6 +814,32 @@ def test_skip_desiste_quando_a_energia_nao_ajuda(monkeypatch):
     assert main._repartir_no_canto("x", 10.0, 40.0, 4) is None
 
 
+def test_perdidas_separa_o_que_a_media_dilui(monkeypatch):
+    """‼️ CICATRIZ Psycho Killer: 20 linhas ótimas + 4 impossíveis de cantar
+    (>0,7s fora). A média deu 0,690 e o selo APROVOU a música que o Marcus
+    reprova. Contar as perdidas separou o veredito dele perfeitamente: as que
+    ele aprova têm ZERO, as que reprova têm ≥1."""
+    hop = 0.032
+    marcos = [10.0 * i for i in range(1, 11)]
+    n = int(120 / hop)
+    energy = [0] * n
+    for a in marcos:
+        for k in range(int(a / hop), int((a + 2.0) / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    bom = [{"t": a + main.ALVO_PERCEPTUAL, "end": a + 1.5, "text": f"linha {i}"}
+           for i, a in enumerate(marcos)]
+    assert main.perceptual_score("x", bom)["perdidas"] == 0
+    # duas linhas jogadas pra longe: a MÉDIA mal cai, 'perdidas' acusa e localiza
+    torto = [dict(l) for l in bom]
+    torto[3]["t"] += 1.4
+    torto[7]["t"] -= 1.9
+    r = main.perceptual_score("x", torto)
+    assert r["perdidas"] == 2 and len(r["onde"]) == 2
+    assert r["nota"] > 0.7          # ‼️ a média ainda parece BOA: é a armadilha
+
+
 def test_porteiro_recusa_alinhamento_amontoado(monkeypatch):
     """‼️ CICATRIZ Bad Boys: as 38 linhas estavam certas UMA EM RELAÇÃO À OUTRA
     (concordância 0,964) mas espremidas em 45s de uma música de 229s. Onset e
