@@ -866,6 +866,30 @@ def test_escolha_prefere_adiantado_a_atrasado(monkeypatch):
     assert na > nb * 1.5                 # o ouvido não empata: atrasado é MUITO pior
 
 
+def test_letra_de_outra_versao_perde_pra_duracao_certa(monkeypatch):
+    """‼️ CICATRIZ (Psycho Killer): um LRC de 313s ganhou numa gravação de 260s
+    só por ter sincronia, e trouxe a letra de OUTRA versão — faltando um verso
+    inteiro, com tempos que pareciam precisos. Letra sincronizada da versão
+    errada é PIOR que texto puro da certa: o erro vem disfarçado de precisão."""
+    chamadas = {"n": 0}
+
+    def fake(path, params):
+        chamadas["n"] += 1
+        if path == "get":
+            return None
+        return [
+            {"trackName": "Psycho Killer", "duration": 313.0,
+             "syncedLyrics": "[00:10.00] letra da versao longa errada"},
+            {"trackName": "Psycho Killer", "duration": 260.0,
+             "plainLyrics": "letra da versao certa"},
+        ]
+
+    monkeypatch.setattr(main, "_lrclib_request", fake)
+    hit = main.fetch_lyrics("Talking Heads", "Psycho Killer", "", 260.0)
+    assert hit and hit["duration"] == 260.0, "escolheu a de duração errada"
+    assert not hit.get("syncedLyrics")     # texto puro da CERTA > sync da errada
+
+
 def test_duracao_suspeita_pega_o_defeito_do_bad_boys(monkeypatch):
     """‼️ CICATRIZ achada de OUVIDO pelo Marcus (Bad Boys 2:30): linha de 5
     palavras durando 0,40s (pisca e some) seguida de outra travada 6s na tela.

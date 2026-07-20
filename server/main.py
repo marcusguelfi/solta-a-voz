@@ -335,7 +335,14 @@ def fetch_lyrics(artist: str, title: str, album: str, duration: float) -> dict |
         dur_diff = abs((r.get("duration") or 0) - duration) if duration else 999
         # regra do estúdio: letra de versão ao vivo só em último caso
         live = 1 if _is_live_title(r.get("trackName")) and not _is_live_title(title) else 0
-        return (live, 0 if r.get("syncedLyrics") else 1, dur_diff)
+        # ‼️ CICATRIZ (Psycho Killer, 2026-07-20): DURAÇÃO vem antes de ter
+        # sincronia. Antes a ordem era (live, tem_sync, dur_diff) e um LRC de
+        # 313s ganhou de tudo numa gravação de 260s — trouxe a letra de OUTRA
+        # versão, faltando um verso inteiro, com tempos que pareciam precisos.
+        # Letra sincronizada da versão errada é PIOR que texto puro da certa:
+        # o erro vem disfarçado de precisão.
+        fora = 1 if (duration and dur_diff > 15) else 0
+        return (live, fora, 0 if r.get("syncedLyrics") else 1, dur_diff)
 
     # 2) busca livre em escada: completa -> artista principal + título limpo -> só título
     seen_q = set()
@@ -351,7 +358,11 @@ def fetch_lyrics(artist: str, title: str, album: str, duration: float) -> dict |
         if not results:
             continue
         best = sorted(results, key=rank)[0]
-        if duration and abs((best.get("duration") or 0) - duration) > 20 and not best.get("syncedLyrics"):
+        # a guarda vale pra TODO candidato, sincronizado ou não (ver rank)
+        if duration and abs((best.get("duration") or 0) - duration) > 20:
+            logging.info("letra recusada p/ %s - %s: duração %ss contra %ss da "
+                         "gravação (provável outra versão)", artist, title,
+                         best.get("duration"), round(duration))
             continue
         return best
     return None
@@ -2153,28 +2164,6 @@ def _repartir_no_canto(sid: str, ini: float, fim: float, n: int) -> list[float] 
         if marcos[m] <= marcos[m - 1]:
             marcos[m] = marcos[m - 1] + 0.05
     return marcos
-
-
-def _vies_vs_onsets(sid: str, lines: list[dict]) -> float | None:
-    """Deslocamento sistemático (s, positivo = atrasado) entre as linhas e os
-    onsets de voz reais — mediana SINALIZADA. Quem aplica é global_align_lines,
-    e só depois de validar contra a energia (ver _vies_candidatos)."""
-    import statistics
-
-    onsets = _onsets_de_frase(sid)
-    if len(onsets) < 4 or not lines:
-        return None
-    difs = []
-    for i, ln in enumerate(lines):
-        fim_ant = (lines[i - 1].get("end") or lines[i - 1]["t"]) if i else -9
-        if i and (ln["t"] - fim_ant) <= 0.8:
-            continue
-        perto = min(onsets, key=lambda o: abs(ln["t"] - o))
-        if abs(ln["t"] - perto) <= 2.0:
-            difs.append(ln["t"] - perto)
-    if len(difs) < 4:
-        return None
-    return round(statistics.median(difs), 3)
 
 
 def _vies_candidatos(sid: str, lines: list[dict]) -> list[float]:
