@@ -336,15 +336,21 @@ porta 8899 com pasta `data` DESCARTÁVEL (nunca monte a real num teste):
 | ffmpeg | 7.1.5 ✓ |
 | torch | 2.13.0+**cpu** ✓ (índice cpu funcionou, imagem 4,29GB) |
 
+### Build NOVO (com o código de hoje) — validado também
+`docker build` do zero: **1,08GB** contra 4,29GB da imagem antiga, e agora com
+`faster-whisper` presente. Landing/app/API os três em 200.
+
 ### Ressalvas encontradas
-- **`faster_whisper` NÃO está na imagem antiga** — entrou no `requirements.txt`
+- **`faster_whisper` faltava na imagem antiga** — entrou no `requirements.txt`
   depois dela. O código degrada bem (`_get_faster_whisper()` cai no stable-ts),
   mas perde o caminho rápido. **Rebuild é obrigatório quando requirements muda.**
-- **`torchaudio` não carrega** (`_torchaudio.abi3.so`): afeta o motor MMS, que
-  é opcional — `_melhor_alinhamento` engole a exceção e usa os outros. Se for
-  usar MMS no servidor, investigar.
-- Build completo demora **muito** (torch + deps). Um `docker build` novo estava
-  ainda rodando ao fim da sessão.
+- **`torchaudio` não carregava** (`OSError: _torchaudio.abi3.so`) nas DUAS
+  imagens: o `torch` vinha do índice CPU e o `torchaudio` entrava depois, como
+  dependência transitiva do índice PADRÃO — versões incompatíveis. **Corrigido
+  no Dockerfile** (instala os dois juntos, do mesmo índice). Falta rebuildar
+  pra confirmar. Afeta só o motor MMS, que é opcional e tem fallback — some
+  sem avisar, que é o pior tipo de defeito.
+- Build completo demora **muito** (torch + deps): ~20min nesta máquina.
 
 ### Regra que virou comentário no docker-compose.yml
 O compose monta `./data:/app/data` — a MESMA pasta do `start.bat`. Rodar os dois

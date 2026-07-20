@@ -12,7 +12,12 @@ WORKDIR /app
 
 # torch CPU primeiro (do índice cpu — MUITO menor que o padrão com CUDA)
 COPY requirements.txt .
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+# ‼️ torchaudio JUNTO, do MESMO índice: instalado depois (como dependência
+# transitiva do índice padrão) ele vem numa versão incompatível com o torch cpu
+# e o .so não carrega — `OSError: Could not load _torchaudio.abi3.so`. Isso
+# derruba o motor MMS (opcional, tem fallback, mas some sem avisar).
+RUN pip install --no-cache-dir torch torchaudio \
+        --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY server/ server/
