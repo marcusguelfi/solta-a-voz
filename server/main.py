@@ -2095,16 +2095,17 @@ def global_align_lines(sid: str, line_texts: list[str],
                  "t": round(max(0.0, ln["t"] - vies), 2),
                  "end": round(max(max(0.0, ln["t"] - vies) + 0.3, ln["end"] - vies), 2)}
                 for ln in lines]      # words são relativas ao início: seguem junto
-        a, b, n = _erro_pareado(sid, lines, cand)
+        # julga pelo OUVIDO (assimétrico), não por erro absoluto simétrico
+        a, b, n = _perceptual_pareado(sid, lines, cand)
         if a is None:                 # régua cega: mantém o comportamento
             melhor_vies, melhor_linhas = vies, cand    # histórico (aplica o palpite)
             break
         antes = a
-        if b < a and (melhor_erro is None or b < melhor_erro):
+        if b > a and (melhor_erro is None or b > melhor_erro):   # nota: MAIOR é melhor
             melhor_vies, melhor_erro, melhor_linhas = vies, b, cand
     if melhor_linhas is not None:
         lines = melhor_linhas
-        logging.info("global em %s: viés de %.0fms corrigido (erro %s -> %s)",
+        logging.info("global em %s: viés de %.0fms corrigido (nota do ouvido %s -> %s)",
                      sid, 1000 * melhor_vies, antes, melhor_erro)
     logging.info("alinhamento global em %s: %.0f%% das palavras ancoradas",
                  sid, 100 * cobertura)
@@ -2211,12 +2212,18 @@ def _vies_candidatos(sid: str, lines: list[dict]) -> list[float]:
     difs.sort()
     corte = max(1, len(difs) // 5)
     aparadas = difs[corte:-corte] or difs      # sem os extremos
-    cands = [statistics.median(difs), statistics.mean(aparadas),
-             statistics.median(aparadas)]
+    # ‼️ O ALVO NÃO É ZERO (Deezer/ISMIR 2021, calibrado com gente cantando): o
+    # ouvido gosta da letra ~67ms ANTES do canto. Deslocar o conjunto até o
+    # deslocamento MEDIDO virar zero deixa a letra sistematicamente tarde demais
+    # pro cantor ler. Subtraindo ALVO_PERCEPTUAL, o conjunto pousa no ponto que
+    # as pessoas julgaram mais sincronizado.
+    cands = [statistics.median(difs) - ALVO_PERCEPTUAL,
+             statistics.mean(aparadas) - ALVO_PERCEPTUAL,
+             statistics.median(aparadas) - ALVO_PERCEPTUAL]
     vistos, saida = set(), []
     for c in cands:
         c = round(c, 3)
-        if 0.08 <= abs(c) <= 1.2 and c not in vistos:
+        if 0.05 <= abs(c) <= 1.2 and c not in vistos:
             vistos.add(c)
             saida.append(c)
     return saida
@@ -2406,6 +2413,33 @@ def _erro_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
     return round(a, 3), round(b, 3), len(idx)
 
 
+def _perceptual_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
+    """Como `_erro_pareado`, mas julgando pelo OUVIDO em vez de erro absoluto.
+
+    Erro absoluto diz que 200ms adiantado e 200ms atrasado são a MESMA coisa.
+    Não são: a curva calibrada com gente cantando pune atraso muito mais (faixa
+    de 90%: −170ms a +40ms). Quando dois candidatos empatam no valor absoluto,
+    é isso que desempata — e desempata pro lado certo.
+
+    Mesma disciplina do `_erro_pareado`: compara nas MESMAS linhas (gotcha 1).
+    """
+    import statistics
+
+    idx, onsets = linhas_verificaveis(sid, base)
+    if len(idx) < 3 or len(cand) != len(base):
+        return None, None, len(idx)
+
+    def nota(lns):
+        vals = []
+        for i in idx:
+            t = lns[i]["t"]
+            perto = min(onsets, key=lambda o: abs(t - o))
+            vals.append(perceptual_line_score(t - perto))
+        return round(statistics.mean(vals), 4)
+
+    return nota(base), nota(cand), len(idx)
+
+
 def _melhor_alinhamento(sid: str, texts: list[str], folga: float = 0.06):
     """Escolhe o motor POR MÚSICA, medindo — nunca por preferência.
 
@@ -2461,8 +2495,20 @@ def _melhor_alinhamento(sid: str, texts: list[str], folga: float = 0.06):
                              c["nome"], sid, 100 * (c["cobertura"] or 0))
         candidatos = sadios
 
+    # ‼️ quem decide é a nota do OUVIDO, não o erro absoluto: 200ms adiantado e
+    # 200ms atrasado empatam no absoluto e NÃO são a mesma coisa pra quem canta.
+    # Cai pro onset quando a nota não dá pra calcular (poucas linhas verificáveis).
+    for c in candidatos:
+        p = perceptual_score(sid, c["lines"])
+        c["percept"] = (p or {}).get("nota")
+    com_nota = [c for c in candidatos if c["percept"] is not None]
     com_onset = [c for c in candidatos if c["onset"] is not None]
-    if com_onset:
+    if com_nota:
+        melhor = max(com_nota, key=lambda c: c["percept"])
+        logging.info("motor em %s: %s (ouvido %.3f, onset %s, concordância %.3f, "
+                     "cobertura %s)", sid, melhor["nome"], melhor["percept"],
+                     melhor["onset"], melhor["acordo"], melhor["cobertura"])
+    elif com_onset:
         melhor = min(com_onset, key=lambda c: c["onset"])
         logging.info("motor em %s: %s (onset %.0fms, concordância %.3f, cobertura %s)",
                      sid, melhor["nome"], 1000 * melhor["onset"], melhor["acordo"],

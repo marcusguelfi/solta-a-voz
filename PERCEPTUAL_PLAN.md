@@ -128,3 +128,27 @@ Ou seja: as duas deixam de mirar "acertar mais palavra" e passam a mirar
 - **O ouvido do Marcus é a autoridade final.** Nenhuma dessas notas substitui
   ele apertar play. O papel delas é ESCOLHER as 3 músicas que ele testa, não
   decidir no lugar dele.
+
+## Passo 1 (retarget −67ms) — FEITO no pipeline, NÃO aplicado em massa
+
+O que mudou em `main.py`:
+- `_vies_candidatos` propõe `mediana − ALVO_PERCEPTUAL` (antes mirava zero).
+- `_perceptual_pareado` novo: desempata candidatos pelo OUVIDO. Erro absoluto
+  diz que 200ms adiantado e 200ms atrasado empatam; pra quem canta não empatam.
+- `_melhor_alinhamento` escolhe o motor pela nota do ouvido (cai pro onset
+  quando há linhas verificáveis de menos).
+
+**Medição — não confirmou.** Verdade humana (única não-circular): Take Me Out
+695→628ms (melhor), Vamos Fugir 210→277ms (pior, embora o viés tenha caído de
++170 pra +103). São 2 músicas com 10 e 5 linhas casadas: fino demais pra
+decidir. A nota do ouvido subiu (0,690→0,751; 106 de 115 melhoraram) mas isso
+era **esperado por construção** — é a métrica que o retarget mira. Não é prova.
+
+**Decisão**: mantido no pipeline, porque vem de estudo com pessoas reais
+julgando karaokê e é um deslocamento de 67ms — pequeno, reversível. Mas a
+biblioteca NÃO foi deslocada em massa: mudar 115 músicas com base em evidência
+que não fecha seria repetir o erro que a gente já documentou. As músicas pegam
+o alvo novo quando forem reprocessadas.
+
+**Como o Marcus decide isso de verdade**: reprocessar 2-3 músicas e comparar
+cantando. O ouvido dele resolve em 5 minutos o que nossas réguas não resolvem.

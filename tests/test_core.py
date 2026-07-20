@@ -814,6 +814,58 @@ def test_skip_desiste_quando_a_energia_nao_ajuda(monkeypatch):
     assert main._repartir_no_canto("x", 10.0, 40.0, 4) is None
 
 
+def test_retarget_mira_no_ouvido_nao_no_zero(monkeypatch):
+    """v4: `_vies_candidatos` mirava erro absoluto ZERO. O ótimo medido com
+    gente cantando é −67ms (letra um tiquinho ANTES). Zerar o deslocamento
+    deixa a letra sistematicamente tarde demais pro cantor ler."""
+    hop = 0.032
+    marcos = [10.0 * i for i in range(1, 9)]
+    n = int(100 / hop)
+    energy = [0] * n
+    for a in marcos:
+        for k in range(int(a / hop), int((a + 2.0) / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    # linhas 300ms atrasadas: o deslocamento proposto tem que levar pro ALVO,
+    # não pro zero — ou seja, ~0,3 − (−0,067) = ~0,367
+    atrasadas = [{"t": a + 0.3, "end": a + 1.5, "text": f"linha {i}"}
+                 for i, a in enumerate(marcos)]
+    cands = main._vies_candidatos("x", atrasadas)
+    assert cands, "devia propor deslocamento"
+    assert any(abs(c - 0.367) < 0.03 for c in cands), cands
+    # aplicando o candidato, as linhas pousam no ALVO (não no zero)
+    v = cands[0]
+    corrigidas = [{**l, "t": round(l["t"] - v, 3)} for l in atrasadas]
+    off = corrigidas[0]["t"] - marcos[0]
+    assert abs(off - main.ALVO_PERCEPTUAL) < 0.03
+
+
+def test_escolha_prefere_adiantado_a_atrasado(monkeypatch):
+    """Erro absoluto diz que 200ms adiantado e 200ms atrasado empatam. Pra quem
+    canta NÃO empatam — atrasado é bem pior. É o `_perceptual_pareado` que
+    desempata, e tem que desempatar pro lado certo."""
+    hop = 0.032
+    marcos = [10.0 * i for i in range(1, 9)]
+    n = int(100 / hop)
+    energy = [0] * n
+    for a in marcos:
+        for k in range(int(a / hop), int((a + 2.0) / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    adiantado = [{"t": a - 0.2, "end": a + 1.5, "text": f"linha {i}"}
+                 for i, a in enumerate(marcos)]
+    atrasado = [{"t": a + 0.2, "end": a + 1.5, "text": f"linha {i}"}
+                for i, a in enumerate(marcos)]
+    # ‼️ UMA chamada só: duas chamadas com bases diferentes reselecionam as
+    # linhas verificáveis e a comparação deixa de valer (gotcha 1).
+    ea, eb, _n = main._erro_pareado("x", adiantado, atrasado)
+    assert abs(ea - eb) <= 0.02          # erro absoluto: empate (dentro de 1 frame)
+    na, nb, _ = main._perceptual_pareado("x", adiantado, atrasado)
+    assert na > nb * 1.5                 # o ouvido não empata: atrasado é MUITO pior
+
+
 def test_perdidas_separa_o_que_a_media_dilui(monkeypatch):
     """‼️ CICATRIZ Psycho Killer: 20 linhas ótimas + 4 impossíveis de cantar
     (>0,7s fora). A média deu 0,690 e o selo APROVOU a música que o Marcus
@@ -962,8 +1014,11 @@ def test_vies_so_e_aplicado_se_a_energia_confirmar(monkeypatch):
     piorado = [{**ln, "t": ln["t"] + 0.6, "end": ln["end"] + 0.6} for ln in certo]
     a, b, _n = main._erro_pareado("x", certo, piorado)
     assert b > a                      # deslocar quem já está certo PIORA
-    # e quem está certo não gera candidato nenhum (viés abaixo do limiar)
-    assert main._vies_candidatos("x", certo) == []
+    # ‼️ "certo" aqui = em cima do onset, que pelo ALVO novo já conta como 67ms
+    # TARDE — então proposta EXISTE (é exatamente o ponto do retarget). Quem
+    # está no ALVO é que não gera candidato nenhum.
+    no_alvo = [{**ln, "t": ln["t"] + main.ALVO_PERCEPTUAL} for ln in certo]
+    assert main._vies_candidatos("x", no_alvo) == []
 
 
 def test_alignment_quality_separa_ancoravel_de_curta(monkeypatch):
