@@ -356,3 +356,25 @@ porta 8899 com pasta `data` DESCARTÁVEL (nunca monte a real num teste):
 O compose monta `./data:/app/data` — a MESMA pasta do `start.bat`. Rodar os dois
 juntos corrompe o `library.json` (lock não atravessa host/container, incidente
 de 2026-07-17). Aviso agora está no próprio arquivo.
+
+### ⚠️ Gotcha 18 — `docker compose up` REBUILDA em silêncio
+O Marcus rodou e "não apareceu nada na porta". Não era erro: o compose tem
+`build: .`, então qualquer mudança no Dockerfile invalida o cache e ele
+**reconstrói antes de subir** (~20min aqui). A saída do build fica bufferizada,
+então parece travado. Na primeira vez use `docker compose up` SEM `-d` pra ver
+o progresso.
+
+Confusão irmã: `0.0.0.0:8777` é o endereço que o servidor ESCUTA dentro do
+container, não um endereço de navegar. Do host é `http://localhost:8777`.
+
+### ✅ Container final validado (compose, com a correção do torchaudio)
+| item | resultado |
+|---|---|
+| app | http://localhost:8777/app.html → 200 |
+| biblioteca | as 131 músicas visíveis dentro do container |
+| torch | 2.13.0+cpu |
+| faster-whisper | OK (faltava na imagem antiga) |
+| torchaudio | **2.11.0+cpu — corrigido** (estava quebrado nas duas anteriores) |
+
+`docker compose down` derruba. **Enquanto o container roda, NÃO abrir o
+start.bat** — mesma pasta `data`, lock não atravessa host/container.
