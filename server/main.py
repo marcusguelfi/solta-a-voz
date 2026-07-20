@@ -1774,8 +1774,12 @@ def agreement_ceiling(sid: str, lines: list[dict]) -> float | None:
         return None
     notas = []
     for ln in lines:
+        # ‼️ o teto varre a música INTEIRA, então linha curta casa em qualquer
+        # lugar por acaso e INFLA o número (Samurai marcava teto 0,957 com uma
+        # transcrição esparsa de 173 palavras em 288s, que na real não cobre a
+        # música). Exigir linha longa deixa o teto honesto.
         alvo = [w for w in _norm_txt(ln.get("text", "")).split() if w]
-        if len(alvo) < 3:
+        if len(alvo) < 5:
             continue
         n = len(alvo)
         melhor = 0.0
@@ -1900,9 +1904,59 @@ def global_align_lines(sid: str, line_texts: list[str],
             lines[i]["t"] = round(lines[i - 1]["t"] + 0.05, 2)
         if lines[i]["end"] < lines[i]["t"] + 0.3:
             lines[i]["end"] = round(lines[i]["t"] + 0.8, 2)
+    # ‼️ o global herda o VIÉS dos timestamps do ASR (~300-400ms atrasados) —
+    # foi por isso que ele perdeu do híbrido mesmo acertando a ESTRUTURA. Viés
+    # sistemático se mede e se corrige: compara com os onsets de energia (fonte
+    # independente) e desloca o conjunto pela mediana. Estrutura do global +
+    # relógio da energia.
+    vies = _vies_vs_onsets(sid, lines)
+    if vies is not None and 0.08 <= abs(vies) <= 1.2:
+        for ln in lines:
+            ln["t"] = round(max(0.0, ln["t"] - vies), 2)
+            ln["end"] = round(max(ln["t"] + 0.3, ln["end"] - vies), 2)
+            if ln.get("words"):
+                pass  # words são relativas ao início da linha: seguem junto
+        logging.info("global em %s: viés de %.0fms corrigido", sid, 1000 * vies)
     logging.info("alinhamento global em %s: %.0f%% das palavras ancoradas",
                  sid, 100 * cobertura)
     return lines
+
+
+def _vies_vs_onsets(sid: str, lines: list[dict]) -> float | None:
+    """Deslocamento sistemático (s, positivo = atrasado) entre as linhas e os
+    onsets de voz reais. Mediana SINALIZADA — só faz sentido se a maioria das
+    linhas erra para o MESMO lado (aí é viés, não imprecisão)."""
+    import statistics
+
+    pitch = load_pitch(sid)
+    energy = sung_energy(sid, pitch)
+    if not energy or not lines:
+        return None
+    hop = pitch["hop"]
+    gap = max(1, int(0.4 / hop))
+    onsets, silencio = [], gap + 1
+    for k, v in enumerate(energy):
+        if v:
+            if silencio >= gap:
+                onsets.append(k * hop)
+            silencio = 0
+        else:
+            silencio += 1
+    if len(onsets) < 4:
+        return None
+    difs = []
+    for i, ln in enumerate(lines):
+        fim_ant = (lines[i - 1].get("end") or lines[i - 1]["t"]) if i else -9
+        if i and (ln["t"] - fim_ant) <= 0.8:
+            continue
+        perto = min(onsets, key=lambda o: abs(ln["t"] - o))
+        if abs(ln["t"] - perto) <= 2.0:
+            difs.append(ln["t"] - perto)
+    if len(difs) < 4:
+        return None
+    mediana = statistics.median(difs)
+    mesmo_lado = sum(1 for d in difs if (d > 0) == (mediana > 0)) / len(difs)
+    return round(mediana, 3) if mesmo_lado >= 0.7 else None
 
 
 def reset_to_pristine(sid: str) -> bool:
