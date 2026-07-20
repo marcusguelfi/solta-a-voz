@@ -294,3 +294,30 @@ linhas. **Sempre rodar os testes depois de edição por script** — o pytest pe
 | Epitáfio | controle, ok | 0,894 | intacto |
 | Bad Boys | "BEEEM melhor", defeito em 2:30 | 0,718 | defeito localizado e marcado |
 | Psycho Killer | verso errado em 1:23 | 0,526 | letra trocada, verso no lugar |
+
+## Fim da sessão 2026-07-20 — estado e a PRÓXIMA PISTA
+
+Feito depois do teste cantado: causa-raiz da letra de outra versão corrigida no
+`rank` (duração antes de ter sincronia), `corrigir_duracoes` no pipeline (as
+duas pontas do defeito do Bad Boys 2:30), limpeza (`_vies_vs_onsets` removida),
+`PENDENCIAS.md` e `refetch_lyrics.py`.
+
+Trocas de letra aplicadas (medidas nos dois estados com a MESMA régua):
+| música | linhas | nota | perdidas | cobertura |
+|---|---|---|---|---|
+| Eu Vou Estar | 23→**31** | 0,437→**0,668** | 5→**0** | 0,591→**0,821** |
+| Send Me An Angel | 44→44 | 0,849→0,852 | 1→1 | 0,731→0,720 |
+
+### ➡️ COMECE POR AQUI: o alinhamento TRUNCA O FIM da música
+Stayin' Alive tem letra cobrindo **96%** da duração e alinhamento parando em
+**71%**. Não é a letra (5 das 7 que eu suspeitei estavam certas — ver a
+autocorreção no PENDENCIAS.md). É o alinhamento perdendo o trecho final.
+Suspeitos: `drop_ghost_lines` comendo o fim, ou o motor sem âncora lá.
+Isso explicaria várias das piores notas de uma vez — é a pista mais quente.
+
+### Docker: NÃO TESTADO
+Docker Desktop estava **pausado manualmente**; só dá pra retomar pela interface
+(ícone da baleia → Unpause). `docker desktop start` responde "already running" e
+o daemon segue recusando. `.claude/launch.json` já existe com o alvo `karaoke`.
+Antes de subir qualquer coisa: conferir a porta 8777 (regra do `data/` — lock
+não atravessa host/container).
