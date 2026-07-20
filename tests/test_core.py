@@ -814,6 +814,31 @@ def test_skip_desiste_quando_a_energia_nao_ajuda(monkeypatch):
     assert main._repartir_no_canto("x", 10.0, 40.0, 4) is None
 
 
+def test_display_coverage_pega_o_que_o_resto_e_cego(monkeypatch):
+    """‼️ A LACUNA DO BAD BOYS: todas as outras métricas olham só o INÍCIO da
+    linha. Ele marcava 0,964 de concordância e era ruim de cantar porque em 70%
+    do canto NÃO HAVIA LINHA NENHUMA na tela (64s órfãos). Linha certa que falta
+    ou some cedo é invisível pra concordância, onset e nota perceptual."""
+    hop = 0.032
+    n = int(60 / hop)
+    energy = [0] * n
+    for a in (10.0, 20.0, 30.0, 40.0):
+        for k in range(int(a / hop), int((a + 4.0) / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    completo = [{"t": a, "end": a + 4.0, "text": f"linha {i}"}
+                for i, a in enumerate((10.0, 20.0, 30.0, 40.0))]
+    assert main.display_coverage("x", completo)["cobertura"] > 0.95
+    # metade das linhas faltando: início das que existem continua PERFEITO
+    faltando = [completo[0], completo[2]]
+    r = main.display_coverage("x", faltando)
+    assert r["cobertura"] < 0.6 and r["orfao_s"] > 5
+    # linha que começa certo e some cedo demais: idem, só a duração está errada
+    curtas = [{**l, "end": l["t"] + 0.8} for l in completo]
+    assert main.display_coverage("x", curtas)["cobertura"] < 0.4
+
+
 def test_perceptual_o_otimo_nao_e_zero_e_atrasar_doi_mais():
     """‼️ A META MUDOU (Deezer/ISMIR 2021, calibrado com gente cantando):
     o ouvido gosta da letra ~67ms ANTES do canto, e punir atraso é MUITO mais

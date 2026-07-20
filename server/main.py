@@ -2343,6 +2343,41 @@ def perceptual_score(sid: str, lines: list[dict]) -> dict | None:
             "linhas": len(lines)}
 
 
+def display_coverage(sid: str, lines: list[dict]) -> dict | None:
+    """PCS adaptado — o tempo em que a letra CERTA está na tela.
+
+    ‼️ LACUNA QUE PASSOU BATIDA ATÉ AGORA: todas as nossas métricas olham só o
+    INÍCIO da linha. Nenhuma olha a DURAÇÃO. Uma linha que começa na hora certa
+    e some no meio do verso é horrível de cantar — e invisível pra
+    `perceptual_score`, `alignment_agreement` e `onset_error_median`.
+
+    Sem verdade humana, mede o que dá pra medir sozinho: quanto do tempo CANTADO
+    tem alguma linha na tela (`orfao` = está cantando e não há letra), e quanto
+    do tempo com letra na tela não tem canto nenhum (`sobra` = letra parada).
+    """
+    pitch = load_pitch(sid)
+    energy = sung_energy(sid, pitch)
+    if not energy or not lines:
+        return None
+    hop = pitch["hop"]
+    n = len(energy)
+    na_tela = [False] * n
+    for ln in lines:
+        a = max(0, int(ln["t"] / hop))
+        b = min(n, int((ln.get("end") or ln["t"] + 2.0) / hop))
+        for k in range(a, b):
+            na_tela[k] = True
+    cantado = sum(1 for v in energy if v)
+    if cantado < 10:
+        return None
+    orfao = sum(1 for k in range(n) if energy[k] and not na_tela[k])
+    sobra = sum(1 for k in range(n) if na_tela[k] and not energy[k])
+    tela = sum(1 for v in na_tela if v) or 1
+    return {"cobertura": round(1 - orfao / cantado, 3),   # 1,0 = nunca fica sem letra
+            "orfao_s": round(orfao * hop, 1),
+            "sobra": round(sobra / tela, 3)}              # fração da tela sem canto
+
+
 def _erro_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
     """Compara duas versões DAS MESMAS linhas — as verificáveis na base.
 
