@@ -74,6 +74,50 @@ não só os onsets de frase.
 transcrição. Reprocessar ANTES de ter a régua certa é gastar CPU pra otimizar a
 coisa errada — por isso este passo é o último, não o primeiro.
 
+## Estado da biblioteca com a régua nova (2026-07-19)
+
+A nota perceptual vem da ENERGIA, não da transcrição → funciona nas 111 músicas
+sem `words.json` que estavam sem nota nenhuma. **115 de 123 avaliadas** (antes:
+12). Mediana **0,690**; só **20% acima de 0,8**; 16% abaixo de 0,4.
+
+Piores: What I've Done (0,013), My Heart Will Go On (0,055), Toxicity (0,152),
+Vento No Litoral (0,199 — **está em versão AO VIVO, viola nossa regra**),
+The Killing Moon (0,211), La Isla Bonita (0,225 — a concordância dava 0,843!).
+
+Melhores: Girls Just Want to Have Fun (0,936), Tiro ao Álvaro (0,921),
+Creep (0,901, 1 linha ruim em 34).
+
+## O resto que a MESMA fonte oferece (e por que destrava d e e)
+
+Mesmo grupo (Deezer / Vaglio, Hennequin, Moussallam):
+
+**1. DALI — verdade humana de verdade.** `deezer/MultilingualLyricsToAudioAlignment`
+publica os splits do DALI: milhares de músicas com letra alinhada por humano em
+nível de palavra/nota. É o benchmark que a gente tentou improvisar com LRC do
+LRCLIB — e que falhou porque LRC casa por título e vem de outra gravação. Com
+DALI dá pra calibrar de verdade, inclusive o viés de exibição do LRC.
+
+**2. Alinhamento por FONEMA, independente de língua** (ISMIR 2020): BiLSTM com
+CTC sobre FONEMAS em vez de palavras. É a chave que faltava — **nossa biblioteca
+é majoritariamente em português**, e o whisper erra muito mais em PT que em EN.
+Todo o nosso teto de ASR (0,83–0,996) é limitado por isso.
+
+### Isso REESCREVE (d) e (e)
+
+- **(d) era "prompt-biasing com a letra"** — enviesar o decodificador com o texto
+  que já conhecemos. Risco alto de contaminação, ganho preso ao WER do modelo.
+  **Vira**: casar por FONEMA, não por palavra. A letra oficial a gente já tem;
+  convertida em fonemas, ela casa com o canto mesmo quando o ASR escreveu a
+  palavra errada — que é o caso dominante em português. Sem contaminar, porque
+  não mexe no decodificador.
+- **(e) era "duas passadas"** — re-transcrever regiões fracas. Caro e ainda
+  limitado pelo mesmo ASR. **Vira**: segunda passada só nas linhas com nota
+  perceptual <0,5 (a régua já diz quais são), e por fonema. Custo cai muito
+  porque são poucas linhas, e o alvo passa a ser o que o ouvido reclama.
+
+Ou seja: as duas deixam de mirar "acertar mais palavra" e passam a mirar
+"acertar o TEMPO das linhas que incomodam" — que é o que o Marcus sente.
+
 ## Cuidados que não podem ser esquecidos
 
 - **A régua nova é energia-derivada** → circular pra julgar qualquer coisa que
