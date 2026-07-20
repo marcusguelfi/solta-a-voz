@@ -890,6 +890,31 @@ def test_letra_de_outra_versao_perde_pra_duracao_certa(monkeypatch):
     assert not hit.get("syncedLyrics")     # texto puro da CERTA > sync da errada
 
 
+def test_corrigir_duracoes_conserta_esmagada_e_arrastada(monkeypatch):
+    """As duas pontas do defeito que o Marcus ouviu no Bad Boys 2:30.
+    ‼️ `clamp_ends_to_voice` não bastava: tolera respiro de 2s (a linha cheia de
+    silêncios de 1,5s seguia acesa) e só ENCURTA, nunca conserta a esmagada."""
+    hop = 0.032
+    n = int(60 / hop)
+    energy = [0] * n
+    for k in range(int(30 / hop), int(31 / hop)):     # canto só no 1º segundo
+        energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    lines = [
+        {"t": 20.0, "end": 20.4, "text": "born of a mother with"},      # esmagada
+        {"t": 30.0, "end": 36.5, "text": "reflection comes and goes"},  # arrastada
+    ]
+    r = main.corrigir_duracoes("x", lines)
+    assert r["esticadas"] == 1 and r["cortadas"] == 1
+    assert lines[0]["end"] > 21.0            # dá tempo de ler
+    assert lines[0]["end"] < 30.0            # sem invadir a próxima
+    assert lines[1]["end"] < 33.0            # apaga quando o canto para
+    # e o detector para de acusar depois do conserto
+    d = main.duracao_suspeita("x", lines)
+    assert d["esmagadas"] == 0 and d["arrastadas"] == 0
+
+
 def test_duracao_suspeita_pega_o_defeito_do_bad_boys(monkeypatch):
     """‼️ CICATRIZ achada de OUVIDO pelo Marcus (Bad Boys 2:30): linha de 5
     palavras durando 0,40s (pisca e some) seguida de outra travada 6s na tela.

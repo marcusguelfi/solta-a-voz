@@ -2451,6 +2451,58 @@ def display_coverage(sid: str, lines: list[dict]) -> dict | None:
             "sobra": round(sobra / tela, 3)}              # fração da tela sem canto
 
 
+def corrigir_duracoes(sid: str, lines: list[dict]) -> dict:
+    """Conserta o que `duracao_suspeita` acusa — as duas pontas.
+
+    ‼️ Por que o `clamp_ends_to_voice` não bastava: ele tolera respiro de até
+    2s, então a linha cheia de silêncios de 1,5s segue acesa (Bad Boys 2:30,
+    6,13s na tela). E ele só ENCURTA — não sabe consertar linha esmagada, que
+    é o defeito irmão (0,40s pra 5 palavras: pisca e some).
+
+    esmagada  -> estica até caber a leitura, sem invadir a próxima linha;
+    arrastada -> corta onde o canto realmente para, com tolerância menor (1s).
+    """
+    pitch = load_pitch(sid)
+    energy = sung_energy(sid, pitch) if pitch else None
+    hop = pitch["hop"] if pitch else None
+    esticadas = cortadas = 0
+    for i, ln in enumerate(lines):
+        pal = max(1, len(_norm_txt(ln.get("text", "")).split()))
+        fim = ln.get("end") or ln["t"]
+        prox = lines[i + 1]["t"] if i + 1 < len(lines) else fim + 10
+        dur = fim - ln["t"]
+        minimo = max(0.25, 0.12 * pal)
+        if dur < minimo:
+            novo = min(ln["t"] + max(minimo, 0.28 * pal), prox - 0.05)
+            if novo > fim + 0.05:
+                ln["end"] = round(novo, 2)
+                esticadas += 1
+            continue
+        if dur > 3.0 and energy and hop:
+            a, b = int(ln["t"] / hop), min(len(energy), int(fim / hop))
+            if b <= a or sum(energy[a:b]) / (b - a) > 0.4:
+                continue                       # tem canto suficiente: é nota longa
+            gap = max(1, int(1.0 / hop))       # respiro curto, não 2s
+            k = a
+            while k < b and not energy[k]:
+                k += 1
+            if k >= b:
+                continue
+            ultimo, silencio = k, 0
+            k += 1
+            while k < b:
+                if energy[k]:
+                    ultimo, silencio = k, 0
+                elif (silencio := silencio + 1) > gap:
+                    break
+                k += 1
+            novo = round(ultimo * hop + 0.3, 2)
+            if novo < fim - 0.5 and novo > ln["t"] + minimo:
+                ln["end"] = novo
+                cortadas += 1
+    return {"esticadas": esticadas, "cortadas": cortadas}
+
+
 def duracao_suspeita(sid: str, lines: list[dict]) -> dict | None:
     """Linhas com DURAÇÃO implausível — o terceiro ponto cego, achado de ouvido.
 
@@ -2700,6 +2752,11 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
         reconciled = {**(reconciled or {}), "droppedNegative": len(neg)}
     if len(lines) < 4:
         return None  # alinhamento colapsou — melhor manter a letra anterior
+    # duração por linha: o defeito que o Marcus achou cantando e que nenhuma
+    # das réguas via (esmagada pisca e some, arrastada fica sem canto na tela)
+    fix_dur = corrigir_duracoes(sid, lines)
+    if fix_dur["esticadas"] or fix_dur["cortadas"]:
+        reconciled = {**(reconciled or {}), "duracaoCorrigida": fix_dur}
     new_synced = "\n".join(
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
     # trilho do LRC recusado (offset absurdo) = whisper sozinho numa faixa que
