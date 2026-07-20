@@ -2288,6 +2288,61 @@ def onset_error_median(sid: str, lines: list[dict]) -> float | None:
     return round(statistics.median(errs), 3)
 
 
+def perceptual_line_score(offset: float) -> float:
+    """‼️ QUANTO O OUVIDO HUMANO ACEITA este deslocamento (0..1).
+
+    `offset` = nossa_linha − canto_real, em segundos. NEGATIVO = letra aparece
+    ANTES do canto.
+
+    Não é fórmula nossa: são os parâmetros calibrados por Lizé Masclef, Vaglio &
+    Moussallam (Deezer, ISMIR 2021) num experimento de KARAOKÊ com pessoas
+    julgando sincronia, hoje na mir_eval como `karaoke_perceptual_metric`.
+
+    Três coisas que ela nos ensina e que a gente estava errando:
+      • o ótimo NÃO é zero, é −67ms — a letra tem que chegar um tiquinho antes,
+        senão o cantor lê tarde demais pra cantar junto;
+      • a curva é ASSIMÉTRICA: atrasar dói muito mais que adiantar. A faixa de
+        90% do pico vai de −170ms a apenas +40ms;
+      • por isso medir com VALOR ABSOLUTO (nosso onset_error_median) é cego
+        justamente pro que mais incomoda.
+    """
+    import math
+
+    a, loc, sc, nf = 1.12244251, -0.22270315, 0.29779424, 1.6857
+    z = (offset - loc) / sc
+    phi = math.exp(-z * z / 2) / math.sqrt(2 * math.pi)
+    Phi = 0.5 * (1 + math.erf(a * z / math.sqrt(2)))
+    return (1.0 / nf) * (2 / sc) * phi * Phi
+
+
+ALVO_PERCEPTUAL = -0.067   # s — onde o ouvido gosta mais (pico da curva acima)
+
+
+def perceptual_score(sid: str, lines: list[dict]) -> dict | None:
+    """Nota perceptual da música: quanto o ouvido aceitaria, linha a linha.
+
+    Devolve `nota` (média, como a mir_eval) E `ruins` — porque a média esconde
+    a linha que estraga a experiência: uma música 95% perfeita com 3 linhas
+    fora do lugar é ruim de cantar, e média nenhuma mostra isso."""
+    import statistics
+
+    idx, onsets = linhas_verificaveis(sid, lines)
+    if len(idx) < 4:
+        return None
+    notas, atrasadas = [], 0
+    for i in idx:
+        t = lines[i]["t"]
+        perto = min(onsets, key=lambda o: abs(t - o))
+        off = t - perto
+        notas.append(perceptual_line_score(off))
+        if off > 0.04:                     # fora da faixa boa, pro lado que dói
+            atrasadas += 1
+    return {"nota": round(statistics.mean(notas), 4),
+            "ruins": sum(1 for n in notas if n < 0.5),
+            "atrasadas": atrasadas, "avaliadas": len(notas),
+            "linhas": len(lines)}
+
+
 def _erro_pareado(sid: str, base: list[dict], cand: list[dict]) -> tuple:
     """Compara duas versões DAS MESMAS linhas — as verificáveis na base.
 

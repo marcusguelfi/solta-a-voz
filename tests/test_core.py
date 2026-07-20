@@ -814,6 +814,43 @@ def test_skip_desiste_quando_a_energia_nao_ajuda(monkeypatch):
     assert main._repartir_no_canto("x", 10.0, 40.0, 4) is None
 
 
+def test_perceptual_o_otimo_nao_e_zero_e_atrasar_doi_mais():
+    """‼️ A META MUDOU (Deezer/ISMIR 2021, calibrado com gente cantando):
+    o ouvido gosta da letra ~67ms ANTES do canto, e punir atraso é MUITO mais
+    severo que punir adianto. Nossa régua absoluta era cega pros dois fatos."""
+    s = main.perceptual_line_score
+    assert s(main.ALVO_PERCEPTUAL) > s(0.0)          # o ótimo não é zero
+    assert s(-0.15) > s(+0.15)                       # assimetria: atraso dói mais
+    assert s(+0.40) < 0.4 * s(-0.10)                 # atraso grande é desastre
+    # a faixa boa é estreita pro lado do atraso e larga pro lado do adianto
+    pico = s(main.ALVO_PERCEPTUAL)
+    assert s(+0.05) < 0.9 * pico and s(-0.17) >= 0.85 * pico
+
+
+def test_perceptual_score_conta_as_linhas_ruins_nao_so_a_media(monkeypatch):
+    """Média esconde a linha que estraga a música: 95% perfeita com 3 linhas
+    fora do lugar é RUIM de cantar. A nota tem que dizer as duas coisas."""
+    hop = 0.032
+    marcos = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+    n = int(80 / hop)
+    energy = [0] * n
+    for a in marcos:
+        for k in range(int(a / hop), int((a + 2.0) / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    quase = [{"t": a + main.ALVO_PERCEPTUAL, "end": a + 1.5, "text": f"linha {i}"}
+             for i, a in enumerate(marcos)]
+    r = main.perceptual_score("x", quase)
+    assert r["nota"] > 0.95 and r["ruins"] == 0
+    # duas linhas jogadas pra frente: a média mal se mexe, 'ruins' acusa
+    torto = [dict(l) for l in quase]
+    torto[2]["t"] += 0.9
+    torto[4]["t"] += 0.9
+    r2 = main.perceptual_score("x", torto)
+    assert r2["ruins"] == 2 and r2["nota"] < r["nota"]
+
+
 def _energia(monkeypatch, marcos, hop=0.032, dur=2.0, total=200.0):
     n = int(total / hop)
     energy = [0] * n
