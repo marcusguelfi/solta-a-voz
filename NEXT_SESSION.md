@@ -437,7 +437,15 @@ Stayin' Alive 0,217 vs 0,413.
 |---|---|---|---|
 | The Killing Moon | 43→47 | 0,117 → **0,857** | 0,54 |
 | Ghostbusters | 49→**64** | 0,363 → **0,724** | 0,509 → **0,964** |
+| Stayin' Alive | 29→**50** | 0,217 → **0,545** | 0,384 → **0,846** |
 | Epitáfio (controle) | 35→35 | 0,894 = | 0,866 = |
+
+Cada conserto agiu num caso diferente — **são complementares, não redundantes**:
+Ghostbusters foi salvo pela REDE (`revertidoParaTrilho`); Stayin' Alive
+recuperou as 21 linhas apagadas; Killing Moon manteve `droppedGhost: 5` porque
+ali os fantasmas eram REAIS e a guarda corretamente não interferiu.
+
+Biblioteca depois: 460 linhas impossíveis (eram 482) e 102 marcadas.
 
 O Ghostbusters gravou `revertidoParaTrilho` — o pipeline deu 0,411 e a rede
 devolveu o trilho com 0,724. **Sem a rede teria saído pior.**
