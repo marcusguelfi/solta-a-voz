@@ -915,6 +915,70 @@ def test_corrigir_duracoes_conserta_esmagada_e_arrastada(monkeypatch):
     assert d["esmagadas"] == 0 and d["arrastadas"] == 0
 
 
+def _energia_marcos(monkeypatch, marcos, hop=0.032, dur=2.0, total=300.0):
+    n = int(total / hop)
+    energy = [0] * n
+    for a in marcos:
+        for k in range(int(a / hop), min(n, int((a + dur) / hop))):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    return energy
+
+
+def test_ghost_nao_e_fantasma_se_tem_canto_na_posicao_original(monkeypatch):
+    """‼️ CICATRIZ (Stayin' Alive): a regra de ouro apagou 21 linhas e, conferindo
+    uma a uma na posição ORIGINAL do LRC, ZERO estavam sobre silêncio — todas
+    tinham canto (cobertura 0,47 a 1,00). Não eram fantasmas: o alinhador as
+    empurrou pro silêncio e a regra só executou o estrago, escondendo o bug."""
+    marcos = [10.0 * i for i in range(1, 21)]
+    _energia_marcos(monkeypatch, marcos)
+    trilho = "\n".join(f"[{int(a // 60):02d}:{a % 60:05.2f}] linha numero {i}"
+                       for i, a in enumerate(marcos))
+    # sobreviveram só as 8 primeiras; as 12 sumidas têm canto no lugar de origem
+    vivas = [{"t": a, "end": a + 2.0, "text": f"linha numero {i}"}
+             for i, a in enumerate(marcos[:8])]
+    assert main._ghosts_sao_reais("x", vivas, trilho) is False
+
+    # agora um caso de fantasma DE VERDADE: o texto sumido cai em silêncio
+    so_no_silencio = "\n".join(
+        f"[{int(a // 60):02d}:{a % 60:05.2f}] linha numero {i}"
+        for i, a in enumerate(marcos[:8])) + "\n" + "\n".join(
+        f"[04:{s:05.2f}] verso fantasma {i}" for i, s in enumerate([5.0, 12.0, 19.0, 26.0, 33.0]))
+    assert main._ghosts_sao_reais("x", vivas, so_no_silencio) is True
+
+
+def test_rede_de_seguranca_devolve_o_trilho_quando_o_pipeline_piora(monkeypatch):
+    """‼️ CICATRIZ (Stayin' Alive): cada etapa do pós-processamento se validava
+    sozinha e o CONJUNTO regrediu — 29 linhas cobrindo 38% do canto, contra 50
+    linhas e 73% do LRC cru que entrou. Alinhador erra a cauda → reconcile
+    desiste ("offset absurdo") → ghost apaga 21 linhas que TINHAM canto embaixo.
+    Ninguém comparava o fim com o começo."""
+    marcos = [10.0 * i for i in range(1, 21)]
+    _energia_marcos(monkeypatch, marcos)
+    trilho = "\n".join(f"[{int(a // 60):02d}:{a % 60:05.2f}] linha numero {i}"
+                       for i, a in enumerate(marcos))
+    # nosso resultado: metade das linhas, todas jogadas pro silêncio
+    ruim = [{"t": 200.0 + i * 2, "end": 202.0 + i * 2, "text": f"linha numero {i}"}
+            for i in range(10)]
+    volta, motivo = main._rede_de_seguranca("x", ruim, trilho)
+    assert volta is not None and len(volta) == len(marcos), motivo
+    assert "trilho" in motivo
+
+
+def test_rede_de_seguranca_nao_mexe_quando_o_pipeline_vai_bem(monkeypatch):
+    """O caso normal (114 das 131): não pode roubar o ganho do pipeline."""
+    marcos = [10.0 * i for i in range(1, 21)]
+    _energia_marcos(monkeypatch, marcos)
+    # trilho 1,2s atrasado; nosso resultado no alvo do ouvido
+    trilho = "\n".join(f"[{int((a + 1.2) // 60):02d}:{(a + 1.2) % 60:05.2f}] linha numero {i}"
+                       for i, a in enumerate(marcos))
+    bom = [{"t": a + main.ALVO_PERCEPTUAL, "end": a + 2.5, "text": f"linha numero {i}"}
+           for i, a in enumerate(marcos)]
+    volta, _m = main._rede_de_seguranca("x", bom, trilho)
+    assert volta is None, "não pode devolver o trilho quando o nosso está melhor"
+
+
 def test_onde_nao_e_truncado_abaixo_de_perdidas(monkeypatch):
     """‼️ CICATRIZ (code review 2026-07-20): `onde` era cortado em 12 mas
     `perdidas` contava todas. O card prometia "⚠ 24 linhas" e o editor levava a

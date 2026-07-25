@@ -401,3 +401,48 @@ mexi.
 Também checado e OK: ordem no pipeline (clamp → ghost → corrigir_duracoes),
 e `corrigir_duracoes` não produz `end <= t` (o guard `novo > fim + 0.05` cobre;
 linha degenerada que já entra com `end == t` fica como está, sem piorar).
+
+## ‼️‼️ O PIPELINE PODIA SAIR PIOR DO QUE ENTROU (2026-07-20, item 1 resolvido)
+
+A pista do "alinhamento trunca o fim" levou a algo maior. No Stayin' Alive:
+`drop_ghost_lines` apagou **21 linhas** — e conferindo uma a uma na posição
+ORIGINAL do LRC, **zero** estavam sobre silêncio (cobertura 0,47 a 1,00). Não
+eram fantasmas: o alinhador as empurrou pro silêncio e a regra de ouro executou
+o estrago, escondendo um erro de POSIÇÃO.
+
+Cadeia completa da falha:
+1. alinhador erra a cauda;
+2. `reconcile` mede offset de −67s, chama de "absurdo" e **desiste**;
+3. `drop_ghost_lines` apaga 21 linhas que agora estão sobre silêncio;
+4. resultado: 29 linhas cobrindo 38% do canto — **pior que o LRC cru** (50
+   linhas, 73%).
+
+**Cada etapa se validava sozinha e o CONJUNTO regredia.** Ninguém comparava o
+fim com o começo.
+
+Medido na biblioteca: **5 de 131** músicas onde o LRC cru batia nosso resultado
+(114 ok). Killing Moon 0,117 vs 0,561 · Ghostbusters 0,363 vs 0,724 ·
+Stayin' Alive 0,217 vs 0,413.
+
+### Dois consertos
+- **`_rede_de_seguranca()`** — no fim do pipeline, compara o resultado com o
+  trilho de entrada e devolve o trilho se piorou. Tudo-ou-nada, mas garante que
+  o pipeline nunca piore.
+- **`_ghosts_sao_reais()`** — cirúrgico: se metade+ das linhas que sumiriam tem
+  canto na posição de origem, o ghost é RECUSADO (grava `ghostRecusado`). Linha
+  no lugar errado é visível e editável; letra apagada é invisível.
+
+### Resultado medido (Epitáfio de CONTROLE, intacto)
+| música | linhas | nota | cobertura |
+|---|---|---|---|
+| The Killing Moon | 43→47 | 0,117 → **0,857** | 0,54 |
+| Ghostbusters | 49→**64** | 0,363 → **0,724** | 0,509 → **0,964** |
+| Epitáfio (controle) | 35→35 | 0,894 = | 0,866 = |
+
+O Ghostbusters gravou `revertidoParaTrilho` — o pipeline deu 0,411 e a rede
+devolveu o trilho com 0,724. **Sem a rede teria saído pior.**
+
+### Gotcha 19 — `grep` sem `--line-buffered` engole a saída
+Monitorei um job com `| grep -E` sem `--line-buffered` e o arquivo ficou 0 bytes
+por 10min: tudo preso no buffer do grep. `align_v2_apply.py` grava
+`data/align_v2_log.txt` direto em disco — **leia esse arquivo**, não o stdout.

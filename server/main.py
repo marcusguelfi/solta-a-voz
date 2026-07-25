@@ -1511,6 +1511,43 @@ def drop_ghost_lines(sid: str, lines: list[dict]) -> tuple[list[dict], int]:
     return keep, dropped
 
 
+def _ghosts_sao_reais(sid: str, lines: list[dict], orig_synced: str | None) -> bool:
+    """As linhas que a regra de ouro apagaria são fantasmas DE VERDADE?
+
+    ‼️ CICATRIZ (Stayin' Alive, 2026-07-20): a regra apagou 21 linhas, e ao
+    conferir uma a uma na posição ORIGINAL do LRC, **zero** estavam sobre
+    silêncio — todas tinham canto embaixo (cobertura 0,47 a 1,00). Não eram
+    fantasmas: o alinhador as tinha empurrado pro silêncio, e a regra de ouro
+    só executou o estrago. Apagar escondeu o bug de posicionamento.
+
+    Devolve False quando o texto que sumiria tem canto no lugar de origem —
+    sinal de que o problema é POSIÇÃO, não existência.
+    """
+    pares = parse_lrc(orig_synced or "")
+    if len(pares) < 6:
+        return True                      # sem trilho não dá pra contestar
+    pitch = load_pitch(sid)
+    energy = (pitch or {}).get("energy")
+    if not energy:
+        return True
+    hop = pitch["hop"]
+    vivos = {_norm_txt(ln.get("text", "")).strip() for ln in lines}
+    com_canto = 0
+    sumidas = 0
+    for i, (t, txt) in enumerate(pares):
+        if _norm_txt(txt).strip() in vivos:
+            continue
+        sumidas += 1
+        fim = pares[i + 1][0] if i + 1 < len(pares) else t + 4
+        a, b = max(0, int(t / hop)), min(len(energy), int(min(fim, t + 6) / hop))
+        seg = energy[a:b] or [0]
+        if sum(seg) / len(seg) >= 0.12:
+            com_canto += 1
+    if sumidas < 4:
+        return True
+    return com_canto / sumidas < 0.5     # metade+ com canto = não são fantasmas
+
+
 def anchor_fix_lines(sid: str, lines: list[dict], radius: float = 12.0,
                      min_score: float = 0.75, bad_score: float = 0.6,
                      bad_score_word: float = 0.6, tol: float = 0.8,
@@ -2384,6 +2421,43 @@ ALVO_PERCEPTUAL = -0.067   # s — onde o ouvido gosta mais (pico da curva acima
 MAX_ONDE = 40              # teto dos timestamps guardados por família de defeito
 
 
+def _rede_de_seguranca(sid: str, lines: list[dict],
+                       orig_synced: str | None) -> tuple[list[dict] | None, str]:
+    """O pipeline saiu PIOR que o trilho que entrou? Então devolve o trilho.
+
+    Cada etapa do pós-processamento se valida sozinha, mas ninguém conferia o
+    CONJUNTO — e o conjunto pode regredir. Devolve (linhas_do_trilho, motivo)
+    quando o trilho ganha com folga, ou (None, "") quando o nosso resultado
+    está igual ou melhor (o caso normal: 114 das 131 músicas).
+
+    Margem de 0,05 na nota + cobertura não pior de propósito: sem folga a
+    decisão vira moeda no ruído e a música fica trocando de trilho a cada
+    reprocessamento.
+    """
+    pares = parse_lrc(orig_synced or "")
+    if len(pares) < 6 or not lines:
+        return None, ""
+    trilho = [{"t": t, "end": t + 3.0, "text": txt} for t, txt in pares]
+    p_novo, p_trilho = perceptual_score(sid, lines), perceptual_score(sid, trilho)
+    if not p_trilho:
+        return None, ""          # sem trilho medível não há a quem recorrer
+    c_novo = (display_coverage(sid, lines) or {}).get("cobertura") or 0
+    c_trilho = (display_coverage(sid, trilho) or {}).get("cobertura") or 0
+    if not p_novo:
+        # ‼️ o caso CATASTRÓFICO, e a 1ª versão desta função o deixava passar:
+        # quando o alinhamento é tão ruim que nem 4 linhas casam com o canto, a
+        # régua devolve None — e comparar None com nota nenhuma fazia a rede
+        # desistir justo onde ela é mais necessária. Trilho medível ganha de
+        # resultado imensurável.
+        if c_trilho > c_novo:
+            return trilho, f"nosso resultado é imensurável; trilho cobre {c_trilho:.2f}"
+        return None, ""
+    if p_trilho["nota"] > p_novo["nota"] + 0.05 and c_trilho >= c_novo:
+        return trilho, (f"nota {p_novo['nota']:.3f} -> trilho {p_trilho['nota']:.3f}, "
+                        f"cobertura {c_novo:.2f} -> {c_trilho:.2f}")
+    return None, ""
+
+
 def selo_suspeito(acordo, cob, percept, dur) -> bool:
     """A regra ÚNICA do selo "⚠ revisar sync" — cada régua cobre o ponto cego
     das outras (ver README). Vive aqui porque o pipeline e o `rescore.py` PRECISAM
@@ -2762,9 +2836,19 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     if tails:
         reconciled = {**(reconciled or {}), "trimmedTails": tails}
     # REGRA DE OURO: linha sem canto embaixo não aparece (deixa o countdown agir)
-    lines, ghosts = drop_ghost_lines(sid, lines)
-    if ghosts:
-        reconciled = {**(reconciled or {}), "droppedGhost": ghosts}
+    depois_ghost, ghosts = drop_ghost_lines(sid, lines)
+    if ghosts and not _ghosts_sao_reais(sid, depois_ghost, orig_synced):
+        # ‼️ CICATRIZ (Stayin' Alive): as 21 "fantasmas" tinham canto embaixo na
+        # posição ORIGINAL — o alinhador as empurrou pro silêncio e a regra de
+        # ouro só executou o estrago. Apagar esconde erro de POSIÇÃO; melhor a
+        # linha no lugar errado (visível, editável) do que letra sumida.
+        logging.warning("ghost recusado em %s: %d linhas tinham canto na posição "
+                        "de origem — é erro de posição, não fantasma", sid, ghosts)
+        reconciled = {**(reconciled or {}), "ghostRecusado": ghosts}
+    else:
+        lines = depois_ghost
+        if ghosts:
+            reconciled = {**(reconciled or {}), "droppedGhost": ghosts}
     # invariante duro: tempo negativo não existe (caso Another Brick, offset -52s)
     neg = [ln for ln in lines if ln["t"] < 0]
     if neg:
@@ -2777,6 +2861,21 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     fix_dur = corrigir_duracoes(sid, lines)
     if fix_dur["esticadas"] or fix_dur["cortadas"]:
         reconciled = {**(reconciled or {}), "duracaoCorrigida": fix_dur}
+    # ‼️ REDE DE SEGURANÇA FINAL: o pipeline pode SAIR PIOR do que entrou.
+    # Medido em 2026-07-20: em 5 das 131 músicas o LRC humano CRU batia o nosso
+    # resultado — Stayin' Alive 0,217 contra 0,413 do cru, com 29 linhas contra
+    # 50. A cadeia de falhas era: alinhador erra a cauda → reconcile mede offset
+    # de -67s, chama de "absurdo" e desiste → ghost apaga 21 linhas que tinham
+    # canto embaixo na posição original. Cada etapa se validava sozinha e o
+    # CONJUNTO regredia. Aqui o resultado inteiro é comparado com o trilho de
+    # entrada; se piorou, devolve o trilho. Mesma disciplina do reconcile e do
+    # viés, aplicada ao pipeline todo.
+    melhor, motivo = _rede_de_seguranca(sid, lines, orig_synced)
+    if melhor is not None:
+        lines = melhor
+        reconciled = {**(reconciled or {}), "revertidoParaTrilho": motivo}
+        logging.warning("pipeline regrediu em %s (%s) — devolvendo o trilho de "
+                        "entrada", sid, motivo)
     new_synced = "\n".join(
         f"[{int(ln['t'] // 60):02d}:{ln['t'] % 60:05.2f}] {ln['text']}" for ln in lines)
     # trilho do LRC recusado (offset absurdo) = whisper sozinho numa faixa que
