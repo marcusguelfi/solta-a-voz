@@ -1824,17 +1824,20 @@ const editShift = () => autoOffset - manualOffset; // linha + shift = áudio
 // O backend já grava os timestamps em lyrics.perceptual.onde — aqui só casamos
 // com as linhas na tela. É isso que transforma "editar a música" em "confirmar
 // 2 linhas": o Marcus não precisa mais caçar o erro cantando.
-const nRuins = (song) => (song?.lyrics?.perceptual?.perdidas || 0)
-  + (song?.lyrics?.duracao?.esmagadas || 0)
-  + (song?.lyrics?.duracao?.arrastadas || 0);
+// ‼️ conta a partir das MESMAS listas que o editor navega. Contar os totais
+// (`perdidas`+`esmagadas`+`arrastadas`) fazia o card prometer 24 linhas e o
+// editor levar a 10 — o contador nunca zerava e o Marcus caçava o resto.
+const ondeRuins = (lyr) => [...new Set([...(lyr?.perceptual?.onde || []),
+                                        ...(lyr?.duracao?.onde_esmagada || []),
+                                        ...(lyr?.duracao?.onde_arrastada || [])])]
+  .sort((a, b) => a - b);
+const nRuins = (song) => ondeRuins(song?.lyrics).length;
 
 function linhasRuins(lyr) {
   // três defeitos diferentes, todos levam o humano ao mesmo lugar: a linha.
   // `onde` = fora de tempo · `esmagada` = rápida demais pra ler ·
   // `arrastada` = fica na tela sem ninguém cantando (o caso do Bad Boys 2:30).
-  const onde = [...new Set([...(lyr?.perceptual?.onde || []),
-                            ...(lyr?.duracao?.onde_esmagada || []),
-                            ...(lyr?.duracao?.onde_arrastada || [])])].sort((a, b) => a - b);
+  const onde = ondeRuins(lyr);
   if (!onde.length || !lyrLines.length) return [];
   return onde.map((t) => {
     let melhor = -1, dist = 0.35;   // casa por tempo, tolerância curta

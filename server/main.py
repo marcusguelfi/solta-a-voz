@@ -2381,6 +2381,21 @@ def perceptual_line_score(offset: float) -> float:
 
 
 ALVO_PERCEPTUAL = -0.067   # s — onde o ouvido gosta mais (pico da curva acima)
+MAX_ONDE = 40              # teto dos timestamps guardados por família de defeito
+
+
+def selo_suspeito(acordo, cob, percept, dur) -> bool:
+    """A regra ÚNICA do selo "⚠ revisar sync" — cada régua cobre o ponto cego
+    das outras (ver README). Vive aqui porque o pipeline e o `rescore.py` PRECISAM
+    concordar: a regra já esteve copiada nos dois e copiar convida a divergir."""
+    return bool(((dur or {}).get("esmagadas") or 0) >= 1
+                or (acordo is not None and acordo < 0.65)
+                or ((cob or {}).get("cobertura") is not None and cob["cobertura"] < 0.7)
+                or ((percept or {}).get("nota") is not None and percept["nota"] < 0.55)
+                # ≥2 e não ≥1: com ≥1 o selo marcava 84% da biblioteca e aviso
+                # que aparece em tudo deixa de ser aviso. `perdidas`/`onde` são
+                # gravados SEMPRE — a função deles é alimentar o editor.
+                or ((percept or {}).get("perdidas") or 0) >= 2)
 
 
 def perceptual_score(sid: str, lines: list[dict]) -> dict | None:
@@ -2409,9 +2424,14 @@ def perceptual_score(sid: str, lines: list[dict]) -> dict | None:
             # Média nunca vai representar isso: contar as perdidas é obrigatório.
             perdidas += 1
             onde.append(round(t, 1))
+    # ‼️ `onde` NÃO é truncado abaixo de `perdidas`: o card mostra o número e o
+    # editor navega pela lista. Se divergirem, o contador nunca zera — o Marcus
+    # corrigiria 10 das 24 que o card promete e ficaria caçando as outras 14.
+    # Cap alto só pra não inchar o library.json em música catastrófica (essa
+    # precisa de reprocessamento, não de edição à mão).
     return {"nota": round(statistics.mean(notas), 4),
             "ruins": sum(1 for n in notas if n < 0.5),
-            "perdidas": perdidas, "onde": onde[:12],
+            "perdidas": perdidas, "onde": onde[:MAX_ONDE],
             "atrasadas": atrasadas, "avaliadas": len(notas),
             "linhas": len(lines)}
 
@@ -2783,17 +2803,7 @@ def align_lyrics_to_vocals(sid: str, engine: str = "auto") -> dict | None:
     # Uma única linha impossível de cantar estraga a música — é literalmente a
     # reclamação dele. Média nunca vai capturar isso.
     dur = duracao_suspeita(sid, lines)
-    ruim = (((dur or {}).get("esmagadas") or 0) >= 1
-            or (acordo is not None and acordo < 0.65)
-            or ((cob or {}).get("cobertura") is not None and cob["cobertura"] < 0.7)
-            or ((percept or {}).get("nota") is not None and percept["nota"] < 0.55)
-            or ((percept or {}).get("perdidas") or 0) >= 2)
-    # Por que ≥2 e não ≥1: com ≥1 o selo marca 103 das 123 (84%) — aviso que
-    # aparece em quase tudo deixa de ser aviso. Mas `perdidas`/`onde` ficam
-    # gravados SEMPRE, pra toda música, porque a função deles não é avisar: é
-    # levar o editor direto às linhas erradas. São 262 linhas impossíveis de
-    # cantar na biblioteca, e cada uma tem timestamp.
-    method = engine + ("-suspeito" if ruim else "")
+    method = engine + ("-suspeito" if selo_suspeito(acordo, cob, percept, dur) else "")
     result = {**lyr, "found": True, "synced": new_synced, "lines": lines,
               "origSynced": orig_synced,
               "difficulty": compute_difficulty(new_synced, entry.get("duration") or 0),

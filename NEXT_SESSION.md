@@ -378,3 +378,26 @@ container, não um endereço de navegar. Do host é `http://localhost:8777`.
 
 `docker compose down` derruba. **Enquanto o container roda, NÃO abrir o
 start.bat** — mesma pasta `data`, lock não atravessa host/container.
+
+## 🔍 Code review do próprio trabalho (2026-07-20) — 2 bugs achados, 1 suspeita descartada
+
+**BUG 1 (usabilidade, real): card prometia mais linhas do que o editor alcançava.**
+`onde` era truncado em 12 mas `perdidas` contava todas → em **19 músicas** os
+números divergiam (Samurai: card "⚠ 24 linhas", editor levava a 10). O contador
+nunca zerava. Corrigido: `MAX_ONDE = 40` e o card conta a partir das MESMAS
+listas que o editor navega (`ondeRuins()` no front). Verificado no navegador:
+card 10 / editor 1/10 / 10 marcadas na tela.
+
+**BUG 2 (manutenção): a regra do selo estava COPIADA** no pipeline e no
+`rescore.py`. Regra copiada diverge sozinha — e já tinha mordido antes (o
+`NameError` do `dur`). Agora existe `main.selo_suspeito()` e o rescore
+**importa**. Teste garante que são o mesmo objeto.
+
+**Suspeita DESCARTADA (verifiquei antes de "otimizar")**: achei que o DP do
+`casar_linhas_onsets` fosse caro por rodar várias vezes por música. Medido:
+2 execuções, **0,04s** no Samurai (42 linhas × 32 onsets). Não é gargalo, não
+mexi.
+
+Também checado e OK: ordem no pipeline (clamp → ghost → corrigir_duracoes),
+e `corrigir_duracoes` não produz `end <= t` (o guard `novo > fim + 0.05` cobre;
+linha degenerada que já entra com `end == t` fica como está, sem piorar).

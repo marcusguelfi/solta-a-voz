@@ -915,6 +915,36 @@ def test_corrigir_duracoes_conserta_esmagada_e_arrastada(monkeypatch):
     assert d["esmagadas"] == 0 and d["arrastadas"] == 0
 
 
+def test_onde_nao_e_truncado_abaixo_de_perdidas(monkeypatch):
+    """‼️ CICATRIZ (code review 2026-07-20): `onde` era cortado em 12 mas
+    `perdidas` contava todas. O card prometia "⚠ 24 linhas" e o editor levava a
+    10 — o contador nunca zerava. Card e editor têm que sair da MESMA lista."""
+    hop = 0.032
+    marcos = [6.0 * i for i in range(1, 26)]          # 25 frases
+    n = int(200 / hop)
+    energy = [0] * n
+    for a in marcos:
+        for k in range(int(a / hop), int((a + 2.0) / hop)):
+            energy[k] = 1
+    monkeypatch.setattr(main, "load_pitch", lambda sid: {"hop": hop, "energy": energy})
+    monkeypatch.setattr(main, "sung_energy", lambda sid, pitch=None, build=False: energy)
+    # todas as linhas 1,5s fora: 25 perdidas, bem acima do cap antigo de 12
+    torto = [{"t": a + 1.5, "end": a + 3.0, "text": f"linha {i}"}
+             for i, a in enumerate(marcos)]
+    r = main.perceptual_score("x", torto)
+    assert r["perdidas"] > 12, "o cenário precisa passar do cap antigo"
+    assert len(r["onde"]) == r["perdidas"], "card e editor divergem"
+
+
+def test_selo_tem_uma_fonte_so():
+    """A regra do selo já esteve copiada no pipeline e no rescore.py. Regra
+    copiada diverge sozinha — o rescore agora IMPORTA a do main."""
+    import importlib
+
+    rescore = importlib.import_module("rescore")   # server/ já está no sys.path
+    assert rescore.selo is main.selo_suspeito
+
+
 def test_duracao_suspeita_pega_o_defeito_do_bad_boys(monkeypatch):
     """‼️ CICATRIZ achada de OUVIDO pelo Marcus (Bad Boys 2:30): linha de 5
     palavras durando 0,40s (pisca e some) seguida de outra travada 6s na tela.

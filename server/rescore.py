@@ -26,13 +26,9 @@ except Exception:
 import main  # noqa: E402
 
 
-def selo(acordo, cob, percept, dur=None) -> bool:
-    """Mesma regra do pipeline — cada régua cobre o ponto cego das outras."""
-    return bool((acordo is not None and acordo < 0.65)
-                or ((dur or {}).get("esmagadas") or 0) >= 1
-                or ((cob or {}).get("cobertura") is not None and cob["cobertura"] < 0.7)
-                or ((percept or {}).get("nota") is not None and percept["nota"] < 0.55)
-                or ((percept or {}).get("perdidas") or 0) >= 2)
+#  ‼️ a regra do selo vive em main.selo_suspeito e é IMPORTADA, não copiada:
+#  ela já esteve duplicada aqui e no pipeline, e regra copiada diverge sozinha.
+selo = main.selo_suspeito
 
 
 def rodar(dry: bool) -> None:
