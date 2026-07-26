@@ -454,3 +454,37 @@ devolveu o trilho com 0,724. **Sem a rede teria saído pior.**
 Monitorei um job com `| grep -E` sem `--line-buffered` e o arquivo ficou 0 bytes
 por 10min: tudo preso no buffer do grep. `align_v2_apply.py` grava
 `data/align_v2_log.txt` direto em disco — **leia esse arquivo**, não o stdout.
+
+## ✅ Gráfico de pitch sumindo — RESOLVIDO (era o desenho, não o dado)
+
+Relato do Marcus: *"às vezes o 'bad boy' não aparecia no gráfico pra pontuar"*.
+
+**Duas hipóteses minhas, ambas medidas — a 1ª errada:**
+1. ❌ "o pyin falha / os limites fmin-fmax cortam" — medido: 25% dos frames
+   cantados não têm nota, MAS os buracos são curtos (mediana 0,26s) e só 92
+   frames encostam no limite. É a assinatura de **consoante**: /s/, /t/, /k/ não
+   têm altura POR DEFINIÇÃO. O dado está certo.
+2. ✅ **O limiar melodia/ritmo (0,25) era seco e a MESMA frase trocava de modo
+   entre repetições.** "Bad boys, bad boys" aparece **18 vezes** com fração de
+   nota indo de 0,16 a 0,89 — algumas caíam em "ritmo" (blocos na linha
+   central) e a de 48,3s caía exatamente em cima do limiar. Em melodia com 25%
+   de nota o gráfico fica quase vazio. O canto é o mesmo; quem oscilava era o
+   desenho.
+
+**Conserto**: o modo passa a ser decidido pela FRASE — todas as repetições do
+mesmo texto votam juntas (média 0,55 → melodia para todas as 18).
+Verificado no navegador: as 19 frases "Bad boys" agora têm modo ÚNICO.
+
+Também entrou a **ponte de consoante** no `drawSegs` (~120ms): o traço atravessa
+buraco curto quando a nota volta na mesma altura, em vez de cortar a cada frame
+mudo. Ganho medido é pequeno (571→554 cortes) mas é gratuito e correto.
+
+**Rejeitado por medição**: baixar `segN >= 2` para `>= 1` acrescentava 240
+segmentos de 32ms no Bad Boys — 7,7s de respingo visual, ruído e não informação.
+Cheguei a implementar e **revertí depois de medir**.
+
+### Gotcha 20 — `engineSeek` reseta `laneModes`
+Passei várias rodadas achando que o conserto não funcionava porque `laneModes`
+vinha vazio. Era o `engineSeek` do meu próprio teste zerando os modos logo antes
+da leitura. Chamando `drawLane()` direto: 0 → 22 modos, sem erro. **Ao verificar
+estado no front, cuidado com o que o próprio teste dispara.**

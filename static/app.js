@@ -447,6 +447,8 @@ function showResults() {
 // Sempre visível no modo IA; o rastro aparece quando o mic está ligado.
 let laneRange = null;
 let laneModes = []; // por frase: "melody" (notas) ou "rhythm" (rap falado)
+let laneKeys = [];  // texto normalizado de cada frase (repetições votam juntas)
+let laneVotos = {}; // chave -> {soma, n} da fração com nota
 
 // janelas das frases da letra em tempo do ÁUDIO — a melodia só aparece dentro
 // delas (o que o pyin detecta fora é sobra da separação: violão, reverb…)
@@ -517,6 +519,24 @@ function drawLane() {
   const colorFor = (endT, inNow) => inNow ? "rgba(255,179,71,.95)"
     : endT < now ? "rgba(93,79,116,.5)" : "rgba(157,143,176,.85)";
 
+  // votação por TEXTO: repetições da mesma frase decidem o modo juntas
+  if (!laneKeys.length && lyrLines.length === wins.length && energy) {
+    laneKeys = lyrLines.map((l) => (l.text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+    laneVotos = {};
+    wins.forEach(([a, b], i) => {
+      const chave = laneKeys[i];
+      if (!chave) return;
+      const ka = Math.max(0, Math.floor(a / hop));
+      const kb = Math.min(midi.length, Math.ceil(b / hop));
+      if (kb <= ka) return;
+      let p = 0;
+      for (let k = ka; k < kb; k++) if (midi[k] !== null) p++;
+      (laneVotos[chave] ||= { soma: 0, n: 0 });
+      laneVotos[chave].soma += p / (kb - ka);
+      laneVotos[chave].n++;
+    });
+  }
+
   const windowMode = (i) => {
     if (!energy) return "melody";
     if (laneModes[i] === undefined) {
@@ -525,7 +545,21 @@ function drawLane() {
       const kb = Math.min(midi.length, Math.ceil(b / hop));
       let pitched = 0;
       for (let k = ka; k < kb; k++) if (midi[k] !== null) pitched++;
-      laneModes[i] = pitched / Math.max(1, kb - ka) >= 0.25 ? "melody" : "rhythm";
+      // ‼️ CICATRIZ (Bad Boys, achado pelo Marcus: "às vezes o 'bad boy' não
+      // aparecia"). Um limiar seco fazia a MESMA frase trocar de modo entre
+      // repetições — "Bad boys, bad boys" media 0,15 / 0,25 / 0,46 / 0,86 ao
+      // longo da música. Em melodia com 25% de nota o gráfico fica quase vazio;
+      // o canto é o mesmo, quem oscilava era o desenho. A decisão passa a ser
+      // da FRASE (todas as repetições do mesmo texto votam juntas), o que
+      // também deixa o refrão coerente de ponta a ponta.
+      const frac = pitched / Math.max(1, kb - ka);
+      const chave = laneKeys[i];
+      if (chave && laneVotos[chave]) {
+        const v = laneVotos[chave];
+        laneModes[i] = (v.soma / v.n) >= 0.25 ? "melody" : "rhythm";
+      } else {
+        laneModes[i] = frac >= 0.25 ? "melody" : "rhythm";
+      }
     }
     return laneModes[i];
   };
@@ -534,9 +568,20 @@ function drawLane() {
   const drawSegs = (arr, isOn, a, b, inNow, opts) => {
     const k0 = Math.max(0, Math.floor(Math.max(a, t0) / hop));
     const k1 = Math.min(arr.length - 1, Math.ceil(Math.min(b, t1) / hop));
-    let segStart = null, segSum = 0, segN = 0, prevM = null;
+    // ‼️ CONSOANTE NÃO É PAUSA (Bad Boys, achado pelo Marcus: "às vezes o
+    // 'bad boy' não aparecia no gráfico"). Medido: 25% dos frames cantados não
+    // têm altura — mas os buracos são CURTOS (mediana 0,26s), a assinatura de
+    // consoante: /s/, /t/, /k/ não têm nota POR DEFINIÇÃO. O dado está certo;
+    // quem piscava era o desenho, que cortava o segmento a cada frame mudo e
+    // ainda descartava pedaço com menos de 2 frames. Agora o traço atravessa
+    // buraco curto quando a nota volta na mesma altura — que é o que o ouvido
+    // escuta: uma nota só.
+    const PONTE = Math.max(1, Math.round(0.12 / hop));   // ~120ms de consoante
+    let segStart = null, segSum = 0, segN = 0, prevM = null, mudo = 0;
     const flush = (endK) => {
-      if (segStart !== null && segN >= 2) {
+      // segN >= 2 continua: medido, baixar pra 1 acrescentava 240 segmentos de
+      // 32ms no Bad Boys — 7,7s de respingo, ruído visual e não informação
+      if (segStart !== null && segN >= 2 && endK > segStart) {
         const x1 = X(segStart * hop), x2 = X(endK * hop);
         // quantização à la UltraSinger: a NOTA exibida é o semitom mais próximo
         // da média do segmento — lane limpo, sem vibrato/slide serrilhando.
@@ -549,20 +594,27 @@ function drawLane() {
         ctx.roundRect(x1, yy - opts.hpx / 2, Math.max(x2 - x1, 3), opts.hpx, opts.hpx / 2);
         ctx.fill();
       }
-      segStart = null; segSum = 0; segN = 0;
+      segStart = null; segSum = 0; segN = 0; mudo = 0;
     };
     for (let k = k0; k <= k1; k++) {
       const v = arr[k];
       const on = isOn(v);
-      if (!on || (opts.pitched && prevM !== null && Math.abs(v - prevM) > 0.7)) flush(k);
+      const saltou = opts.pitched && on && prevM !== null && Math.abs(v - prevM) > 0.7;
       if (on) {
+        // buraco curto com a nota voltando na mesma altura = consoante: liga.
+        // Buraco longo, ou nota que mudou, fecha o segmento de verdade.
+        if (segStart !== null && (mudo > PONTE || saltou)) flush(k);
         if (segStart === null) segStart = k;
         if (opts.pitched) segSum += v;
         segN++;
+        mudo = 0;
+        prevM = opts.pitched ? v : null;
+      } else if (segStart !== null && ++mudo > PONTE) {
+        flush(k - mudo + 1);       // fecha onde o canto REALMENTE parou
+        prevM = null;
       }
-      prevM = opts.pitched && on ? v : null;
     }
-    flush(k1);
+    flush(k1 - (mudo > PONTE ? mudo : 0));
   };
 
   for (let i = 0; i < wins.length; i++) {
@@ -1658,7 +1710,7 @@ async function openPlayer(song) {
   resetScore();
   score.ref = null;
   laneRange = null;
-  laneModes = [];
+  laneModes = []; laneKeys = []; laneVotos = {};
   $("pitch-lane").hidden = true;
   if (useStems) {
     fetch(`/api/pitch/${song.id}`)
